@@ -1,7 +1,6 @@
 
 download.file <-function(URL, origination.file, destination, destination.file)
 {
-  # library(stringr)
   if (missing(destination.file)) destination.file <- origination.file
   if (grepl(".csv", destination.file, fixed = TRUE))
   {

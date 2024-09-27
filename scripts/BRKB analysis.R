@@ -2,7 +2,7 @@
 # nr_a_shares <- 591564
 # nr_b_shares <- -3
 # b_shares_equiv <- nr_b_shares + nr_a_shares * 1500
-
+#
 
 
 # report_date <- as.Date("2023-12-31")
