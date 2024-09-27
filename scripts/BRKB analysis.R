@@ -21,7 +21,7 @@ value_BRK_investments <-function(start_dt, end_dt){
   dates_13F <- dates_13F[dates_13F < as.Date(Sys.Date() - 7 * 5)]
   end_dates <- c(dates_13F[-1], end_dt)
   
-  investments <- NULL
+  investments <- NULL# 
   investment_per_share <- NULL
   b_shares_equiv <- NULL
   q_dates <- NULL
