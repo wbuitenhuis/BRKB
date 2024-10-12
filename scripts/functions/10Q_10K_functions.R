@@ -46,84 +46,7 @@ download_edgar_file <- function(url, destfile){
 
 download.bkrb.quarterly.earnings <- function(){
   # Work in progress
-  library(xts)
-  extract_lineitem_data <- function(data, line_item, dates)
-  {
-    slct <- grepl(line_item, data)
-    if (sum(slct) == 0) {
-      browser()
-      #Interactive Brokers may have changed name of line items or deleted line item.
-    }
-    data1 <- data[slct]
-    data1 <- stringr::str_replace(data1, line_item, "#")
-    if (line_item == "Cleared Avg. DART per Account")
-    {
-      # browser()
-      slct <- grepl("(Annualized)", data)
-      data1 <- data[slct]
-      data1 <- stringr::str_replace(data1, "(Annualized)", "#")
-    }
-    # data1 <- stringr::str_remove_all(data1, line_item)
-    data1 <- stringr::str_replace_all(data1, "\\s{1,}", ";") #replace multiple spaces by semi colon
-    data1 <- stringr::str_replace_all(data1, ",", "") #remove comma' s
-    data1 <- stringr::str_replace_all(data1, "\\$", "") #remove $ signs
-    data1 <- stringr::str_split(data1, ";")
-    ind.not.numbers <- stringr::str_detect(data1[[1]], "%") # breaks here
-    data1[[1]][ind.not.numbers] <- NA
-    n.spaces <- unlist(lapply(lapply(data1, stringr::str_detect, " "), sum, na.rm = TRUE))
-    if (max(n.spaces) > 0)
-    {
-      # have a year with spaces inside observations (typically last year)
-      ind <- which(n.spaces > 0)
-      for (i in 1:length(ind))
-      {
-        x <- str_split(data1[[ind[i]]], " ")
-        n.obs.before <- length(data1[[ind[i]]])
-        ind2 <- which(unlist(lapply(x, length)) > 1)
-        for (j in 1:length(ind2))
-        {
-          add.obs <- x[[ind2[j]]]
-          n.add.obs <- length(add.obs)
-          data1[[ind[i]]][ind2[j]:(ind2[j] + n.add.obs - 1)] <- add.obs
-          # one known instance this solves a problem.
-          # can imagine situations where it create other problems
-        }
-      }
-    }
-    n.obs <- unlist(lapply(data1, length))
-    if (max(n.obs) > 13)
-    {
-      # message("More than 12 observations in a year")
-      ind <- which(n.obs > 13)
-      for (i in 1:length(ind))
-      {
-        data1[[ind[i]]] <- data1[[ind[i]]][1:13]
-      }
-      # browser()
-    }
-    if (min(n.obs) < 13)
-    {
-      ind <- which(n.obs < 13)
-      for (i in 1:length(ind))
-      {
-        n.NA <- 13 - n.obs[ind[i]]
-        data1[[ind[i]]] <- c(data1[[ind[i]]], rep(NA, n.NA))
-      }
-    }
-    #Should have 12 obsservations per year now.
-    # order old to new
-    n.years <- length(data1)
-    data1 <- data1[n.years:1]
-    data1 <- unlist(data1)
-    keep <- !grepl("#", data1)
-    data1 <- data1[keep]
-    data1 <- as.numeric(data1)
-    # data1 <- t(matrix(as.numeric(unlist(data1)), nrow = 12, ncol = n.years))
-    data1 <- xts(as.vector(t(data1)), order.by = dates)
-    names(data1) <- line_item
-    return(data1)
-  }
-  
+
   url <- "https://www.berkshirehathaway.com/reports.html"
   
   dir_name <- "./rawdata/financial_reports/"
@@ -150,8 +73,7 @@ download.bkrb.quarterly.earnings <- function(){
   ind <- stringr::str_detect(index_links,"Archives/edgar/data")
   index_links <- index_links[ind]
   index_links_desc <- index_links_desc[ind]
-  browser()
-  
+
   # Download the first 10-Q filing
   if (length(index_links) > 0) {
     # get links of this specific filing
@@ -184,7 +106,6 @@ download.bkrb.quarterly.earnings <- function(){
     is_xml <- stringr::str_detect(extension, "xml")
     is_txt <- stringr::str_detect(extension, "txt")
     is_xsd <- stringr::str_detect(extension, "xsd")
-    #form_link <- form_links[is_date & is_htm]
     form_link_txt <- form_links[is_date & is_txt]
     form_link_html <- form_links[is_date & is_htm]
     form_link_xml <- form_links[is_date & is_xml]
@@ -195,10 +116,8 @@ download.bkrb.quarterly.earnings <- function(){
     browser()
     date_str <- date_str[is_date & is_htm]
     
-    # webdata <- download_edgar_file(paste0("https://www.sec.gov",form_link))
     # https://xbrl.us/join-us/membership/individual/
     # https://www.sec.gov/search-filings/edgar-application-programming-interfaces
-    
     # https://www.lexjansen.com/pharmasug-cn/2021/SR/Pharmasug-China-2021-SR031.pdf
     
     
@@ -217,27 +136,23 @@ download.bkrb.quarterly.earnings <- function(){
     webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
     Sys.sleep(0.2)
     webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
-    setwd("./xbrl")
+    setwd("./xbrl/")
     xml <- webdata_xml |> httr::content("text")
     write(xml, "test.xml")
     xsd <- webdata_xsd |> httr::content("text")
     write(xsd, filename_xsd)
-    test <- XBRL::xbrlDoAll("test.xml")
+#   test <- XBRL::xbrlDoAll("test.xml") # does not work
     
     
     xbrl_doc <- XBRL::xbrlParse("test.xml")
-    
-    xml <- xml2::read_xml(webdata_xml)
-    
-    
     facts <- XBRL::xbrlProcessFacts(xbrl_doc)
     contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
     units <- XBRL::xbrlProcessUnits(xbrl_doc)
     XBRL::xbrlFree(xbrl_doc)
     
-    # need to run without "/.output/"
-    
-    
+    ind <- which(facts$elementId == "us-gaap_WeightedAverageNumberOfSharesOutstandingBasic") 
+    ind <- stringr::str_detect(facts$elementId, "NumberOfSharesOutstanding")
+    unique(facts$elementId[ind])
     
     # b <- chromote::ChromoteSession$new()
     # b$Network$setUserAgentOverride(userAgent = "w.buitenhuis@gmail.com")
