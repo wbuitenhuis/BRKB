@@ -45,8 +45,7 @@ download_edgar_file <- function(url, destfile){
 }
 
 download.bkrb.quarterly.earnings <- function(){
-  # Download monthly statistics from Interactive Brokers investor relations website
-  # Convert pdf document in R readible form
+  # Work in progress
   library(xts)
   extract_lineitem_data <- function(data, line_item, dates)
   {
@@ -144,10 +143,14 @@ download.bkrb.quarterly.earnings <- function(){
   
   # Extract the links to the 10-Q filings
   index_links <- page |>
-    #rvest::html_nodes("a") |>
     rvest::html_elements("a") |>
     rvest::html_attr("href") 
-  index_links <- grep("Archives/edgar/data", index_links, value = TRUE)
+  index_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
+  # ind <- grepl("Archives/edgar/data", index_links, value = TRUE)
+  ind <- stringr::str_detect(index_links,"Archives/edgar/data")
+  index_links <- index_links[ind]
+  index_links_desc <- index_links_desc[ind]
+  browser()
   
   # Download the first 10-Q filing
   if (length(index_links) > 0) {
@@ -155,11 +158,18 @@ download.bkrb.quarterly.earnings <- function(){
     Sys.sleep(0.12)
     page <- httr::GET(paste0("https://www.sec.gov", index_links[1]), ua) |> rvest::read_html()
     form_links <- page |>
-      rvest::html_nodes("a") |>
+      rvest::html_elements("a") |>
       rvest::html_attr("href") 
-    # find the correct link with the html filing 
-    form_links <- grep("Archives/edgar/data", form_links, value = TRUE)
-    form_links <- form_links[stringr::str_detect(form_links,"-")]
+    form_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
+    # find the correct link with the html filing
+    ind <- stringr::str_detect(form_links,"Archives/edgar/data")
+    form_links <- form_links[ind]
+    form_links_desc <- form_links_desc[ind]
+    
+    #form_links <- grep("Archives/edgar/data", form_links, value = TRUE)
+    ind <- stringr::str_detect(form_links,"-")
+    form_links <- form_links[ind]
+    form_links_desc <- form_links_desc[ind]
     start_filename <- lapply(stringr::str_locate_all(form_links, "/"), xts::last) |> unlist()
     start_filename <- start_filename[seq(from = 1, by = 2, to = length(start_filename))] + 1
     filename <- stringr::str_sub(form_links, start_filename, stringr::str_length(form_links))
@@ -171,17 +181,88 @@ download.bkrb.quarterly.earnings <- function(){
     extension <- stringr::str_sub(right_str, dot_pos + 1, stringr::str_length(right_str))
     is_date <- stringr::str_detect(date_str, "[:digit:]{6,8}")
     is_htm <- stringr::str_detect(extension, "htm")
-    form_link <- form_links[is_date & is_htm]
-    if (length(form_link) != 1) browser()
+    is_xml <- stringr::str_detect(extension, "xml")
+    is_txt <- stringr::str_detect(extension, "txt")
+    is_xsd <- stringr::str_detect(extension, "xsd")
+    #form_link <- form_links[is_date & is_htm]
+    form_link_txt <- form_links[is_date & is_txt]
+    form_link_html <- form_links[is_date & is_htm]
+    form_link_xml <- form_links[is_date & is_xml]
+    form_link_xsd <- form_links[is_date & is_xsd]
+    filename_xsd<- filename[is_date & is_xsd]
+    if (length(form_link_txt) != 1) browser()
+    if (length(form_link_html) != 1) browser()
     browser()
     date_str <- date_str[is_date & is_htm]
     
-    # 00000webdata <- download_edgar_file(paste0("https://www.sec.gov",form_link))
+    # webdata <- download_edgar_file(paste0("https://www.sec.gov",form_link))
+    # https://xbrl.us/join-us/membership/individual/
+    # https://www.sec.gov/search-filings/edgar-application-programming-interfaces
     
-    ua <- httr::user_agent("w.buitenhuis@gmail.com")
-    Sys.sleep(0.12)
-    webdata <- httr::GET(paste0("https://www.sec.gov",form_link), ua)
-    html <- rvest::read_html(webdata)
+    # https://www.lexjansen.com/pharmasug-cn/2021/SR/Pharmasug-China-2021-SR031.pdf
+    
+    
+    Sys.sleep(0.2)
+    url_txt <- paste0("https://www.sec.gov",form_link_txt)
+    url_html <- paste0("https://www.sec.gov",form_link_html)
+    url_xml <- paste0("https://www.sec.gov",form_link_xml)
+    url_xsd <- paste0("https://www.sec.gov",form_link_xsd)
+    webdata_txt <- httr::GET(url_txt, httr::user_agent("w.buitenhuis@gmail.com")) 
+    Sys.sleep(0.2)
+    webdata_html <- httr::GET(url_html, httr::user_agent("w.buitenhuis@gmail.com")) 
+    html <- httr::content(webdata_html, "text")
+    html <- xml2::read_html(webdata_html) # use java script error
+    
+    Sys.sleep(0.2)
+    webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
+    Sys.sleep(0.2)
+    webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
+    setwd("./xbrl")
+    xml <- webdata_xml |> httr::content("text")
+    write(xml, "test.xml")
+    xsd <- webdata_xsd |> httr::content("text")
+    write(xsd, filename_xsd)
+    test <- XBRL::xbrlDoAll("test.xml")
+    
+    
+    xbrl_doc <- XBRL::xbrlParse("test.xml")
+    
+    xml <- xml2::read_xml(webdata_xml)
+    
+    
+    facts <- XBRL::xbrlProcessFacts(xbrl_doc)
+    contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
+    units <- XBRL::xbrlProcessUnits(xbrl_doc)
+    XBRL::xbrlFree(xbrl_doc)
+    
+    # need to run without "/.output/"
+    
+    
+    
+    # b <- chromote::ChromoteSession$new()
+    # b$Network$setUserAgentOverride(userAgent = "w.buitenhuis@gmail.com")
+    # webdataLIVE_html <- rvest::read_html_live(url_html) # enable javascript
+    # # the html version seems to only show the java script, not the html being populated.
+    # the $view() method does show the javascript generated page though.
+    # Sys.sleep(6.5)
+    # webdataLIVE_xml <- rvest::read_html_live(url_xml) 
+    # x <- webdataLIVE_xml |> rvest::html_text()
+    
+    Sys.sleep(0.2)
+    webdata <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com"))
+    useragent <- webdata$request$options$useragent
+    httr::warn_for_status(webdata)
+    # bin <- httr::content(webdata, "raw")
+    text <- httr::content(webdata_txt, "text")
+    
+    webdataLIVE_txt <- rvest::read_html_live(url_txt) 
+    # need to use read_html_live (using chromite, otherwise get 403 error
+    text <- webdataLIVE_txt$html_elements((css = "pre")) |> rvest::html_text()
+    # all relevant text is part of one big pre tag. this effectively removes the tag
+    writeLines(text, "./output/test.txt")
+    # we now get an html doc
+    # html <- rvest::read_html( "./output/test.txt")
+    
     tables <- html |> rvest::html_element("table")
     x <- tables |> rvest::html_table()
     # look for correct file to download
@@ -203,69 +284,4 @@ download.bkrb.quarterly.earnings <- function(){
 
 }
 
-mktx_stats <- function(){
-  
-  library(xts)
-  url <- "https://investor.marketaxess.com/trading-data/default.aspx"
-  # domain <- "https://www.marketaxess.com/"
-  dir_name <- "./rawdata/marketaxess/"
-  href <- rvest::read_html(url)|> rvest::html_elements("a")|> rvest::html_attr("href")
-  excel_links <- stringr::str_detect(href, ".xlsx")
-  href <- href[excel_links]
-  href <- href[!is.na(href)]
-  url <- href[stringr::str_detect(tolower(href), "monthly-volume")]
-  ind <- stringr::str_locate_all(url, "/")[[1]][, 1] |> xts::last()
-  file_name <- stringr::str_sub(url, start = ind + 1)
-  url <- stringr::str_sub(url, end = ind)
-  url <- paste0("https:", url)
-  download.file(URL = url, origination.file = file_name, destination = dir_name, 
-                destination.file = file_name)
-  
-  file.list <- list.files(dir_name)
-  save_dt <- file.info(paste0(dir_name, file.list))$atime
-  last_file <- file.list[which(save_dt == max(save_dt))[1]]
-  
-  excel_data <- readxl::read_excel(path = paste0(dir_name, last_file),
-                                   sheet = "Market Volumes - Monthly")
-  
-  dates <-  excel_data[1, ]
-  dates <- dates[,-1] |> as.numeric()
-  dates <- lubridate::as_date(dates, origin = "1899-12-30")
-  excel_data <- excel_data[-1, ]
-  varnames <- excel_data[,1][[1]]
-  trace_MKTX <- excel_data[, -1]
-  trace_MKTX[trace_MKTX == "n/a"] <- NA
-  trace_MKTX <- t(trace_MKTX)
-  trace_MKTX <- matrix(as.numeric(trace_MKTX), ncol = length(varnames))
-  colnames(trace_MKTX) <- varnames
-  keep <- which(varnames %in% c("U.S. High-Grade TRACE",
-                                "U.S. High-Yield TRACE"))
-  keep <- keep[3:4]
-  keep <- c(keep, which(varnames %in% "Eurobonds")[2] + 1)
-  trace_MKTX <- trace_MKTX[, keep]
-  colnames(trace_MKTX) <- c("HG_volume", "HY_volume", "EURO_credit")
-  trace_MKTX <- xts(x=trace_MKTX, order.by = as.yearmon(dates))
-  
-  excel_data <- readxl::read_excel(path = paste0(dir_name, last_file),
-                                   sheet = "MKTX - Monthly")
-  
-  dates <-  excel_data[3, ]
-  dates <- dates[,-1] |> as.numeric()
-  dates <- lubridate::as_date(dates, origin = "1899-12-30")
-  excel_data <- excel_data[c(-1,-2,-3), ]
-  varnames <- excel_data[,1][[1]]
-  MKTX_data <- excel_data[, -1]
-  MKTX_data[MKTX_data == "n/a"] <- NA
-  MKTX_data <- t(MKTX_data)
-  MKTX_data <- matrix(as.numeric(MKTX_data), ncol = length(varnames))
-  colnames(MKTX_data) <- varnames
-  keep <- which(varnames %in% c("U.S. High-Grade",
-                                "U.S. High-Yield"))
-  keep <- keep[3:4]
-  keep <- c(keep, which(varnames %in% "Eurobonds")[2] + 1)
-  MKTX_data <- MKTX_data[, keep]
-  colnames(MKTX_data) <- c("HG_volume", "HY_volume", "EURO_credit")
-  MKTX_data <- xts(x=MKTX_data, order.by = as.yearmon(dates))
-  
-  save(trace_MKTX, MKTX_data, file = "./RData/MKTX_stats.RData")
-}
+

@@ -129,3 +129,4 @@ data_dictionary <- NasdaqDataLink.datatable('SHARADAR/INDICATORS')
 source("./scripts/functions/10Q_10K_functions.R")
 # debugonce(download.bkrb.quarterly.earnings)
 download.bkrb.quarterly.earnings()
+
