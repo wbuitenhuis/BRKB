@@ -152,6 +152,18 @@ download.bkrb.quarterly.earnings <- function(){
   index_links_desc <- index_links_desc[ind]
   browser()
   
+  #alternative approach - nneds to be tested
+  # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
+  
+  filings <- 
+    read_html(url) %>%
+    html_nodes(xpath='//*[@id="seriesDiv"]/table') %>%
+    html_table() %>%
+    as.data.frame() %>%
+    janitor::clean_names()
+  
+  
+  
   # Download the first 10-Q filing
   if (length(index_links) > 0) {
     # get links of this specific filing
