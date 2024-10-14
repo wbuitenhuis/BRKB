@@ -136,19 +136,28 @@ download.bkrb.quarterly.earnings <- function(){
     webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
     Sys.sleep(0.2)
     webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
-    setwd("./xbrl/")
+    # setwd("./xbrl/")
     xml <- webdata_xml |> httr::content("text")
     write(xml, "test.xml")
     xsd <- webdata_xsd |> httr::content("text")
     write(xsd, filename_xsd)
 #   test <- XBRL::xbrlDoAll("test.xml") # does not work
     
-    
+    browser()
     xbrl_doc <- XBRL::xbrlParse("test.xml")
     facts <- XBRL::xbrlProcessFacts(xbrl_doc)
     contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
     units <- XBRL::xbrlProcessUnits(xbrl_doc)
-    XBRL::xbrlFree(xbrl_doc)
+    labels <- XBRL::xbrlProcessLabels(xbrl_doc)# nothing
+    elements <- XBRL::xbrlProcessElements(xbrl_doc)# nothing
+    roles <- XBRL::xbrlProcessRoles(xbrl_doc) # nothing
+    footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc)
+    schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
+    linkbase <- XBRL::xbrlGetSchemaName(xbrl_doc)
+    importnames <- XBRL::xbrlGetImportNames(xbrl_doc) # empty
+    # arcs <- XBRL::xbrlProcessArcs(xbrl_doc) breaks argument arcType is missing
+    
+    # XBRL::xbrlFree(xbrl_doc)
     
     ind <- which(facts$elementId == "us-gaap_WeightedAverageNumberOfSharesOutstandingBasic") 
     ind <- stringr::str_detect(facts$elementId, "NumberOfSharesOutstanding")
