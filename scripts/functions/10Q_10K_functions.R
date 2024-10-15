@@ -76,14 +76,13 @@ download.bkrb.quarterly.earnings <- function(){
 
   #alternative approach - nneds to be tested
   # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
-  
-  filings <- 
-    read_html(url) %>%
-    html_nodes(xpath='//*[@id="seriesDiv"]/table') %>%
-    html_table() %>%
-    as.data.frame() %>%
-    janitor::clean_names()
-  
+  # filings <- 
+  #   read_html(url) %>%
+  #   html_nodes(xpath='//*[@id="seriesDiv"]/table') %>%
+  #   html_table() %>%
+  #   as.data.frame() %>%
+  #   janitor::clean_names()
+  # 
   
   
 
@@ -132,7 +131,7 @@ download.bkrb.quarterly.earnings <- function(){
     # https://xbrl.us/join-us/membership/individual/
     # https://www.sec.gov/search-filings/edgar-application-programming-interfaces
     # https://www.lexjansen.com/pharmasug-cn/2021/SR/Pharmasug-China-2021-SR031.pdf
-    
+    # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
     
     Sys.sleep(0.2)
     url_txt <- paste0("https://www.sec.gov",form_link_txt)
@@ -151,27 +150,52 @@ download.bkrb.quarterly.earnings <- function(){
     webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
     # setwd("./xbrl/")
     xml <- webdata_xml |> httr::content("text")
-    write(xml, "test.xml")
+    write(xml, "./xbrl/test.xml")
     xsd <- webdata_xsd |> httr::content("text")
     write(xsd, filename_xsd)
 #   test <- XBRL::xbrlDoAll("test.xml") # does not work
     
     browser()
-    xbrl_doc <- XBRL::xbrlParse("test.xml")
+    # parse data
+    xbrl_doc <- XBRL::xbrlParse("./xbrl/test.xml")
+    schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
+    xbrl_xsd <- XBRL::xbrlParse(schema_name) # xsd file
+    
+    # read in xbrl doc
     facts <- XBRL::xbrlProcessFacts(xbrl_doc)
     contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
     units <- XBRL::xbrlProcessUnits(xbrl_doc)
-    labels <- XBRL::xbrlProcessLabels(xbrl_doc)# nothing
-    elements <- XBRL::xbrlProcessElements(xbrl_doc)# nothing
-    roles <- XBRL::xbrlProcessRoles(xbrl_doc) # nothing
     footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc)
-    schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
     linkbase <- XBRL::xbrlGetSchemaName(xbrl_doc)
-    importnames <- XBRL::xbrlGetImportNames(xbrl_doc) # empty
+    
+    # read in schema file
+    labels <- XBRL::xbrlProcessLabels(xbrl_xsd)
+    elements <- XBRL::xbrlProcessElements(xbrl_xsd)
+    roles <- XBRL::xbrlProcessRoles(xbrl_xsd)
+    importnames <- XBRL::xbrlGetImportNames(xbrl_xsd)
+    
+    for (i in 1:length(importnames)){
+      cat(importnames[i])
+      ind <- stringr::str_locate_all(importnames[i], "/")[[1]] |> xts::last()
+      ind <- ind[1,1] + 1
+      filename <- stringr::str_sub(importnames[i], start = ind)
+      webdata <- httr::GET(importnames[i])
+      httr::warn_for_status(webdata)
+      import_xsd <- httr::content(webdata, "text")
+      write(import_xsd, file = paste0("./xbrl/", filename))
+    }
+    browser()
     # arcs <- XBRL::xbrlProcessArcs(xbrl_doc) breaks argument arcType is missing
     
     # XBRL::xbrlFree(xbrl_doc)
     
+    arelle_arg <- "--file XBRL_instance --facts=FACTSfile "
+    system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
+            args = c("--about","--save-loadable-excel"))
+    
+    # arelleCmdLine -f c:\temp\test.rss -v --disclosureSystem efm-pragmatic-all-years --store-to-XBRL-DB "localhost\SQLEXPRESS,,sqlLogin,sqlPassword,,90,mssqlSemantic"
+    # python arelle.py --validate --file="yourfile.xbrl" --output="output.csv"
+
     ind <- which(facts$elementId == "us-gaap_WeightedAverageNumberOfSharesOutstandingBasic") 
     ind <- stringr::str_detect(facts$elementId, "NumberOfSharesOutstanding")
     unique(facts$elementId[ind])
