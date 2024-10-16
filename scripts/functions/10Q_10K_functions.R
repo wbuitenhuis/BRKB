@@ -44,7 +44,120 @@ download_edgar_file <- function(url, destfile){
     return(bin)
 }
 
-download.bkrb.quarterly.earnings <- function(){
+edgar_timeseries_10q <- function(){
+  # 1.) obtain CIK
+  # 2.) download 10-Q and 10-K links
+  # 3.) For each 10)Q form, download xbrl instance and xbrl schema
+  # 4.) parse tables from xbrl instance into csv file
+  # 5.) extract individual tables (income statement and balance sheet) from csv file, maintain hierarchy
+  # 6.) join the same table from from different filings over time to create a time series
+  
+  cik <- "0001067983"
+  type <- "10-Q"
+  
+  filing_urls <- edgar_link_to_filings(form = "10-Q")
+  download_edgar_xbrlfiles(filing_urls[1], "xbrl/") # can create a for loop later for all filing urls
+  save_xbrl_tables()
+  
+}
+
+edgar_link_to_filings <- function(cik, form = "10-Q"){
+  
+  # error checks
+  if (form %in% c("10-Q", "10-K")){
+    # this is good
+  } else {
+    cat(paste("form has to be either 10-K or 10-Q, not", form))
+    browser()
+  }
+  cik <- as.character(cik)
+  # Define the URL for the EDGAR search
+  items_on_page <- "100"
+  
+  url <- paste0("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=", cik, 
+                "&type=", form, "&dateb=&owner=exclude&count=", items_on_page)
+  
+  # Get the webpage content
+  ua <- httr::user_agent("w.buitenhuis@gmail.com")
+  Sys.sleep(0.15)
+  page <- httr::GET(url, ua) |> rvest::read_html()
+  
+  # Extract the links to the 10-Q filings
+  index_links <- page |>
+    rvest::html_elements("a") |>
+    rvest::html_attr("href") 
+  index_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
+  ind <- stringr::str_detect(index_links,"Archives/edgar/data")
+  index_links <- index_links[ind]
+  index_links_desc <- index_links_desc[ind]
+  
+  return(index_links)
+}
+
+download_edgar_xbrlfiles <- function(url, destination_dir){
+    # get links of this specific filing
+    ua <- httr::user_agent("w.buitenhuis@gmail.com")
+    Sys.sleep(0.12)
+    page <- httr::GET(paste0("https://www.sec.gov", url), ua) |> rvest::read_html()
+    form_links <- page |>
+      rvest::html_elements("a") |>
+      rvest::html_attr("href") 
+    form_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
+    # find the correct link with the html filing
+    ind <- stringr::str_detect(form_links,"Archives/edgar/data")
+    form_links <- form_links[ind]
+    form_links_desc <- form_links_desc[ind]
+    
+    #form_links <- grep("Archives/edgar/data", form_links, value = TRUE)
+    ind <- stringr::str_detect(form_links,"-")
+    form_links <- form_links[ind]
+    form_links_desc <- form_links_desc[ind]
+    start_filename <- lapply(stringr::str_locate_all(form_links, "/"), xts::last) |> unlist()
+    start_filename <- start_filename[seq(from = 1, by = 2, to = length(start_filename))] + 1
+    filename <- stringr::str_sub(form_links, start_filename, stringr::str_length(form_links))
+    dash_pos <- stringr::str_locate(filename,"-")[,1]
+    left_str <- stringr::str_sub(filename, 1, dash_pos - 1)
+    right_str <- stringr::str_sub(filename, dash_pos + 1)
+    dot_pos <- stringr::str_locate(right_str,"\\.")[,1]
+    date_str <- stringr::str_sub(right_str, 1, dot_pos - 1)
+    extension <- stringr::str_sub(right_str, dot_pos + 1, stringr::str_length(right_str))
+    is_date <- stringr::str_detect(date_str, "[:digit:]{6,8}")
+    is_htm <- stringr::str_detect(extension, "htm")
+    is_xml <- stringr::str_detect(extension, "xml")
+    is_txt <- stringr::str_detect(extension, "txt")
+    is_xsd <- stringr::str_detect(extension, "xsd")
+    form_link_txt <- form_links[is_date & is_txt]
+    form_link_html <- form_links[is_date & is_htm]
+    form_link_xml <- form_links[is_date & is_xml]
+    form_link_xsd <- form_links[is_date & is_xsd]
+    filename_xsd<- filename[is_date & is_xsd]
+    date_str <- date_str[is_date & is_htm]
+    
+    url_xml <- paste0("https://www.sec.gov", form_link_xml)
+    url_xsd <- paste0("https://www.sec.gov", form_link_xsd)
+    
+    Sys.sleep(0.2)
+    webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
+    Sys.sleep(0.2)
+    webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
+    xml <- webdata_xml |> httr::content("text")
+    write(xml, paste0(destination_dir, filename, ".xml"))
+    xsd <- webdata_xsd |> httr::content("text")
+    write(xsd, paste0(desitination_dir, filename_xsd))
+    cat(paste(filename, "downloaded."))
+}
+
+save_xbrl_tables() <- function(xml_file){
+  
+  arelle_arg <- c("--validate", paste0("--file ", xml_file),
+                  "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
+                  "--factTable=xbrl/facttable.csv")
+  system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
+          args = arelle_arg)
+}
+
+
+test.download.bkrb <- function(){
   # Work in progress
 
   url <- "https://www.berkshirehathaway.com/reports.html"
@@ -159,14 +272,14 @@ download.bkrb.quarterly.earnings <- function(){
     # parse data
     xbrl_doc <- XBRL::xbrlParse("./xbrl/test.xml")
     schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
-    xbrl_xsd <- XBRL::xbrlParse(schema_name) # xsd file
+    xbrl_xsd <- XBRL::xbrlParse(schema_name) # xsd file (xbrl schema)
     
     # read in xbrl doc
     facts <- XBRL::xbrlProcessFacts(xbrl_doc)
     contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
     units <- XBRL::xbrlProcessUnits(xbrl_doc)
     footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc)
-    linkbase <- XBRL::xbrlGetSchemaName(xbrl_doc)
+    linkbase <- XBRL::xbrlGetLinkbaseNames(xbrl_doc) # empty
     
     # read in schema file
     labels <- XBRL::xbrlProcessLabels(xbrl_xsd)
@@ -182,16 +295,34 @@ download.bkrb.quarterly.earnings <- function(){
       webdata <- httr::GET(importnames[i])
       httr::warn_for_status(webdata)
       import_xsd <- httr::content(webdata, "text")
-      write(import_xsd, file = paste0("./xbrl/", filename))
+      write(import_xsd, file = paste0("./xbrl/xbrl.Cache/", filename))
     }
     browser()
     # arcs <- XBRL::xbrlProcessArcs(xbrl_doc) breaks argument arcType is missing
     
-    # XBRL::xbrlFree(xbrl_doc)
+    # dir <- getwd()
+    # setwd("./xbrl/")
+    # XBRL::xbrlDoAll("test.xml", cache.dir = "xbrl.Cache", verbose = TRUE, 
+    #                 delete.cached.inst = FALSE)
+    # # breaks when trying. to download a https:// file which is already in the cache dir
+    # setwd(dir)
+    # # XBRL::xbrlFree(xbrl_doc)
     
-    arelle_arg <- "--file XBRL_instance --facts=FACTSfile "
     system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
             args = c("--about","--save-loadable-excel"))
+    
+    arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/facttable.csv")
+    arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/output.json", 
+                    "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
+                    "--DTS=xbrl/dtsfile.csv",
+                    "--factTable=xbrl/facttable.csv",
+                    "--table=xbrl/table_linkbase.csv",
+                    "--pre=xbrl/presentation_file.csv")
+    system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
+            args = arelle_arg)
+    
+    # python arelleCmdLine.py --validate --file="yourfile.xbrl" --output="output.json" --tables
+    
     
     # arelleCmdLine -f c:\temp\test.rss -v --disclosureSystem efm-pragmatic-all-years --store-to-XBRL-DB "localhost\SQLEXPRESS,,sqlLogin,sqlPassword,,90,mssqlSemantic"
     # python arelle.py --validate --file="yourfile.xbrl" --output="output.csv"
