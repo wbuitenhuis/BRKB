@@ -127,8 +127,7 @@ data_dictionary <- NasdaqDataLink.datatable('SHARADAR/INDICATORS')
 
 
 source("./scripts/functions/10Q_10K_functions.R")
-# setwd("/Users/wouterbuitenhuis/Documents/R/BRKB/")
 # debugonce(download.bkrb.quarterly.earnings)
-setwd("/Users/wouterbuitenhuis/Documents/R/BRKB")
-download.bkrb.quarterly.earnings()
+# setwd("/Users/wouterbuitenhuis/Documents/R/BRKB")
+edgar_timeseries_10q()
 

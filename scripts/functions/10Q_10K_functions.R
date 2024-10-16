@@ -1,35 +1,35 @@
 
-download.file <-function(URL, origination.file, destination, destination.file)
-{
-  if (missing(destination.file)) destination.file <- origination.file
-  if (grepl(".csv", destination.file, fixed = TRUE))
-  {
-    # in some cases need to download file with extension .csv-dl, while want to save .csv
-    # this is case with CBOE volume data
-    n <- stringr::str_locate(destination.file, ".csv")[, "end"]
-    destination.file <- substr(destination.file, 1, n)
-  }
-  destination.file <- paste0(destination, destination.file)
-  URL <- paste0(URL, origination.file)
-  webdata <- httr::GET(URL)
-  useragent <- webdata$request$options$useragent
-  httr::warn_for_status(webdata)
-  bin <- httr::content(webdata, "raw")
-  if (httr::http_status(webdata)$category == "Success") 
-  {
-    writeBin(bin, destination.file)
-    n <- nchar(origination.file)
-    if (tolower(substr(origination.file, n - 3, n)) == ".zip")
-    {
-      utils::unzip(destination.file, exdir = destination, setTimes = TRUE)
-    }  
-  }
-  else
-  {
-    warning(paste(URL, "Did not download."))
-  }
-  return(httr::http_status(webdata))
-}
+# download.file <-function(URL, origination.file, destination, destination.file)
+# {
+#   if (missing(destination.file)) destination.file <- origination.file
+#   if (grepl(".csv", destination.file, fixed = TRUE))
+#   {
+#     # in some cases need to download file with extension .csv-dl, while want to save .csv
+#     # this is case with CBOE volume data
+#     n <- stringr::str_locate(destination.file, ".csv")[, "end"]
+#     destination.file <- substr(destination.file, 1, n)
+#   }
+#   destination.file <- paste0(destination, destination.file)
+#   URL <- paste0(URL, origination.file)
+#   webdata <- httr::GET(URL)
+#   useragent <- webdata$request$options$useragent
+#   httr::warn_for_status(webdata)
+#   bin <- httr::content(webdata, "raw")
+#   if (httr::http_status(webdata)$category == "Success") 
+#   {
+#     writeBin(bin, destination.file)
+#     n <- nchar(origination.file)
+#     if (tolower(substr(origination.file, n - 3, n)) == ".zip")
+#     {
+#       utils::unzip(destination.file, exdir = destination, setTimes = TRUE)
+#     }  
+#   }
+#   else
+#   {
+#     warning(paste(URL, "Did not download."))
+#   }
+#   return(httr::http_status(webdata))
+# }
 
 download_edgar_file <- function(url, destfile){
     # download files from edgar SEC website
@@ -39,9 +39,8 @@ download_edgar_file <- function(url, destfile){
     Sys.sleep(0.12)
     webdata <- httr::GET(url, ua)
     httr::warn_for_status(webdata)
-    bin <- httr::content(webdata, "raw")
-    # if (httr::http_status(webdata)$category == "Success") writeBin(bin, destfile)
-    return(bin)
+    text <- httr::content(webdata, "text")
+    return(text)
 }
 
 edgar_timeseries_10q <- function(){
@@ -55,9 +54,14 @@ edgar_timeseries_10q <- function(){
   cik <- "0001067983"
   type <- "10-Q"
   
-  filing_urls <- edgar_link_to_filings(form = "10-Q")
-  download_edgar_xbrlfiles(filing_urls[1], "xbrl/") # can create a for loop later for all filing urls
+  # debugonce(edgar_link_to_filings)
+  # filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
+  # filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
+  # download_edgar_xbrlfiles(filing_urls[1], "xbrl/") # can create a for loop later for all filing urls
+  browser()
+  debugonce(save_xbrl_tables)
   save_xbrl_tables()
+  # 
   
 }
 
@@ -132,7 +136,8 @@ download_edgar_xbrlfiles <- function(url, destination_dir){
     form_link_xsd <- form_links[is_date & is_xsd]
     filename_xsd<- filename[is_date & is_xsd]
     date_str <- date_str[is_date & is_htm]
-    
+    filename_xml <- filename[is_date & is_xml]
+    filename_xsd <- filename[is_date & is_xsd]
     url_xml <- paste0("https://www.sec.gov", form_link_xml)
     url_xsd <- paste0("https://www.sec.gov", form_link_xsd)
     
@@ -141,13 +146,13 @@ download_edgar_xbrlfiles <- function(url, destination_dir){
     Sys.sleep(0.2)
     webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
     xml <- webdata_xml |> httr::content("text")
-    write(xml, paste0(destination_dir, filename, ".xml"))
+    write(xml, paste0(destination_dir, filename_xml)) #breaks here
     xsd <- webdata_xsd |> httr::content("text")
-    write(xsd, paste0(desitination_dir, filename_xsd))
-    cat(paste(filename, "downloaded."))
+    write(xsd, paste0(destination_dir, filename_xsd))
+    cat(paste(filename_xml, "and", filename_xsd, "downloaded."))
 }
 
-save_xbrl_tables() <- function(xml_file){
+save_xbrl_tables <- function(xml_file){
   
   arelle_arg <- c("--validate", paste0("--file ", xml_file),
                   "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
