@@ -1,36 +1,4 @@
 
-# download.file <-function(URL, origination.file, destination, destination.file)
-# {
-#   if (missing(destination.file)) destination.file <- origination.file
-#   if (grepl(".csv", destination.file, fixed = TRUE))
-#   {
-#     # in some cases need to download file with extension .csv-dl, while want to save .csv
-#     # this is case with CBOE volume data
-#     n <- stringr::str_locate(destination.file, ".csv")[, "end"]
-#     destination.file <- substr(destination.file, 1, n)
-#   }
-#   destination.file <- paste0(destination, destination.file)
-#   URL <- paste0(URL, origination.file)
-#   webdata <- httr::GET(URL)
-#   useragent <- webdata$request$options$useragent
-#   httr::warn_for_status(webdata)
-#   bin <- httr::content(webdata, "raw")
-#   if (httr::http_status(webdata)$category == "Success") 
-#   {
-#     writeBin(bin, destination.file)
-#     n <- nchar(origination.file)
-#     if (tolower(substr(origination.file, n - 3, n)) == ".zip")
-#     {
-#       utils::unzip(destination.file, exdir = destination, setTimes = TRUE)
-#     }  
-#   }
-#   else
-#   {
-#     warning(paste(URL, "Did not download."))
-#   }
-#   return(httr::http_status(webdata))
-# }
-
 download_edgar_file <- function(url, destfile){
     # download files from edgar SEC website
     # sets user agent
@@ -39,8 +7,7 @@ download_edgar_file <- function(url, destfile){
     Sys.sleep(0.12)
     webdata <- httr::GET(url, ua)
     httr::warn_for_status(webdata)
-    text <- httr::content(webdata, "text")
-    return(text)
+    return(webdata)
 }
 
 edgar_timeseries_10q <- function(){
@@ -161,7 +128,30 @@ save_xbrl_tables <- function(xml_file){
           args = arelle_arg)
 }
 
+read_arelle_tables <- function(){
+  data <- read.csv("xbrl/arelle_output/facttable.csv")
+  ind <- which(data[,1] != "")
+  concept_name <- data[ind,1]
+  concept_id <- stringr::str_sub(tablenames,end = 6)
+  # check if table id is fully nummer
+  # find first and second " - " in between is table classification
+  concept_classification <- NULL
+  # select concept_classification == tolower("statement")
+  # second till end - concept label
+  # subset data for 1st statement
+  # check which columns have at least some data, erase all with only missing data
+  # review what is left - in particular look at collumn names
+  # extract period from column names
+  # extract entity from column names
+  # extract other items from column names?
+  # subset data based on column classifications (period, entity etc.)
+  
+}
 
+
+
+
+#### can ignore everything below ####
 test.download.bkrb <- function(){
   # Work in progress
 
