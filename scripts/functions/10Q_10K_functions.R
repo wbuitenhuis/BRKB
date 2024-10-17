@@ -1,5 +1,5 @@
 
-download_edgar_file <- function(url, destfile){
+download_edgar_file <- function(url){
     # download files from edgar SEC website
     # sets user agent
     # ensure not to violate download limits
@@ -21,13 +21,14 @@ edgar_timeseries_10q <- function(){
   cik <- "0001067983"
   type <- "10-Q"
   
-  # debugonce(edgar_link_to_filings)
   # filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
-  # filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-  # download_edgar_xbrlfiles(filing_urls[1], "xbrl/") # can create a for loop later for all filing urls
+  filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
+  # xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
+  xml_filename <- "xbrl/brka-20240630_htm.xml"
+  #csv_filename <- save_xbrl_tables(xml_file = xml_filename)
+  csv_filename <- "xbrl/brka-20240630_htm.csv"
   browser()
-  debugonce(save_xbrl_tables)
-  save_xbrl_tables()
+  read_arelle_tables(csv_filename)
   # 
   
 }
@@ -48,10 +49,8 @@ edgar_link_to_filings <- function(cik, form = "10-Q"){
   url <- paste0("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=", cik, 
                 "&type=", form, "&dateb=&owner=exclude&count=", items_on_page)
   
-  # Get the webpage content
-  ua <- httr::user_agent("w.buitenhuis@gmail.com")
-  Sys.sleep(0.15)
-  page <- httr::GET(url, ua) |> rvest::read_html()
+  page <- download_edgar_file(url)
+  page <- rvest::read_html(page)
   
   # Extract the links to the 10-Q filings
   index_links <- page |>
@@ -67,9 +66,8 @@ edgar_link_to_filings <- function(cik, form = "10-Q"){
 
 download_edgar_xbrlfiles <- function(url, destination_dir){
     # get links of this specific filing
-    ua <- httr::user_agent("w.buitenhuis@gmail.com")
-    Sys.sleep(0.12)
-    page <- httr::GET(paste0("https://www.sec.gov", url), ua) |> rvest::read_html()
+    page <- download_edgar_file(url)
+    page <- rvest::read_html(page)
     form_links <- page |>
       rvest::html_elements("a") |>
       rvest::html_attr("href") 
@@ -107,40 +105,90 @@ download_edgar_xbrlfiles <- function(url, destination_dir){
     filename_xsd <- filename[is_date & is_xsd]
     url_xml <- paste0("https://www.sec.gov", form_link_xml)
     url_xsd <- paste0("https://www.sec.gov", form_link_xsd)
-    
-    Sys.sleep(0.2)
-    webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
-    Sys.sleep(0.2)
-    webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
+    webdata_xml <- download_edgar_file(url_xml)
+    webdata_xsd <- download_edgar_file(url_xsd)
     xml <- webdata_xml |> httr::content("text")
     write(xml, paste0(destination_dir, filename_xml)) #breaks here
     xsd <- webdata_xsd |> httr::content("text")
     write(xsd, paste0(destination_dir, filename_xsd))
     cat(paste(filename_xml, "and", filename_xsd, "downloaded."))
+    return(paste0(destination_dir, filename_xml))
 }
 
 save_xbrl_tables <- function(xml_file){
   
+  filename <- stringr::str_sub(xml_file,start = 1, end = -4)
+  filename <- paste0(filename,"csv")
+  # arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/output.json", 
+  #                 "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
+  #                 "--DTS=xbrl/dtsfile.csv",
+  #                 "--factTable=xbrl/facttable.csv",
+  #                 "--table=xbrl/table_linkbase.csv",
+  #                 "--pre=xbrl/presentation_file.csv")
   arelle_arg <- c("--validate", paste0("--file ", xml_file),
                   "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
-                  "--factTable=xbrl/facttable.csv")
+                  "--DTS=xbrl/dtsfile.csv",
+                  paste0("--factTable=", filename),
+                  "--table=xbrl/table_linkbase.csv",
+                  "--pre=xbrl/presentation_file.csv")
   system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
           args = arelle_arg)
+  return(filename)
 }
 
-read_arelle_tables <- function(){
-  data <- read.csv("xbrl/arelle_output/facttable.csv")
-  ind <- which(data[,1] != "")
-  concept_name <- data[ind,1]
-  concept_id <- stringr::str_sub(tablenames,end = 6)
-  # check if table id is fully nummer
+read_arelle_tables <- function(filename){
+
+  data <- read.csv(filename)
+  
+  # find tables and classify them- can make this one function
+  i_concept <- which(data[,1] != "")
+  concept_names <- data[i_concept,1]
+  concept_id <- stringr::str_sub(concept_names,end = 6)
+  ind <- stringr::str_locate_all(concept_names, " - ")
+  indf <- function(x){
+    output <- c(x[1,2] + 1, x[2,1] - 1)
+  }
+  v <- lapply(X=ind, FUN = indf)
+  v <- t(matrix(unlist(v), nrow = 2))
+  colnames(v) <- c("start", "end")
+  concept_classification <- stringr::str_sub(concept_names, v)
+  label <- stringr::str_sub(concept_names, start = v[,"end"] + 4)
+  end <- c(i_concept[-1]-1, nrow(data))
+  tables <- data.frame(start = i_concept, end = end, class = concept_classification,
+                       name = label)
+  # select only tables that contain statements
+  tables <- tables[tolower(tables$class) == "statement", ]
+  # this would be end of first function
+  table <- data[tables$start[1]:tables$end[1], ]
+  browser()
+  indf <- function(x){
+    which(x != "")[1]
+  }
+  hierarchy <- apply(table,1,indf)
+  names(hierarchy) <- 1:length(hierarchy)
+  label <- table[,1:max(hierarchy)]
+  keep <- label != ""
+  label <- label[keep]
+  data <- table[, (max(hierarchy)+1):ncol(table)]
+  data[data ==""] <- NA
+  no_obs <- is.na(data)
+  keep_col <- apply(no_obs,2,sum) != nrow(data)
+  data <- data[,keep]
+  date <- stringr::str_extract(colnames(data), "[:digit:]{2,}.[:digit:]{2,}.[:digit:]{2,}")
+  date <- lubridate::as_date(date, format = "...")
+  date <- stringr::str_replace_all(date, ".", "-")
+  # for each table extract information. For now will work with one table first
+  # Will take table 1
+  
+  
+  # check if table id is fully number
   # find first and second " - " in between is table classification
-  concept_classification <- NULL
   # select concept_classification == tolower("statement")
   # second till end - concept label
   # subset data for 1st statement
+  
   # check which columns have at least some data, erase all with only missing data
-  # review what is left - in particular look at collumn names
+  # review what is left - in particular look at column names
   # extract period from column names
   # extract entity from column names
   # extract other items from column names?
@@ -151,7 +199,7 @@ read_arelle_tables <- function(){
 
 
 
-#### can ignore everything below ####
+################### can ignore everything below ###############
 test.download.bkrb <- function(){
   # Work in progress
 
