@@ -21,9 +21,9 @@ edgar_timeseries_10q <- function(){
   cik <- "0001067983"
   type <- "10-Q"
   
-  # filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
+  filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
   filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-  # xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
+  xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
   xml_filename <- "xbrl/brka-20240630_htm.xml"
   #csv_filename <- save_xbrl_tables(xml_file = xml_filename)
   csv_filename <- "xbrl/brka-20240630_htm.csv"
@@ -137,7 +137,20 @@ save_xbrl_tables <- function(xml_file){
 }
 
 read_arelle_tables <- function(filename){
-
+  
+  ### temporary code
+  browser()
+  xbrl_doc <- XBRL::xbrlParse("./xbrl/brka-20240630_htm.xml")
+  schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
+  xbrl_xsd <- XBRL::xbrlParse(paste0("./xbrl/", schema_name)) # xsd file (xbrl schema)
+  
+  # read in xbrl doc
+  facts <- XBRL::xbrlProcessFacts(xbrl_doc)
+  contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
+  
+  
+  ### end temporary code
+  
   data <- read.csv(filename)
   
   # find tables and classify them- can make this one function
@@ -177,6 +190,8 @@ read_arelle_tables <- function(filename){
   date <- stringr::str_extract(colnames(data), "[:digit:]{2,}.[:digit:]{2,}.[:digit:]{2,}")
   date <- lubridate::as_date(date, format = "...")
   date <- stringr::str_replace_all(date, ".", "-")
+  
+  
   # for each table extract information. For now will work with one table first
   # Will take table 1
   
