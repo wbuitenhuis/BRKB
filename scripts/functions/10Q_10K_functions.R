@@ -21,9 +21,9 @@ edgar_timeseries_10q <- function(){
   cik <- "0001067983"
   type <- "10-Q"
   
-  filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
+  #filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
   filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-  xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
+  #xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
   xml_filename <- "xbrl/brka-20240630_htm.xml"
   #csv_filename <- save_xbrl_tables(xml_file = xml_filename)
   csv_filename <- "xbrl/brka-20240630_htm.csv"
@@ -117,8 +117,29 @@ download_edgar_xbrlfiles <- function(url, destination_dir){
 
 save_xbrl_tables <- function(xml_file){
   
-  filename <- stringr::str_sub(xml_file,start = 1, end = -4)
-  filename <- paste0(filename,"csv")
+  browser()
+  # create file names
+  ind <- stringr::str_locate_all(xml_file, "/")[[1]][,1] |> xts::last()
+  dir_name <- stringr::str_sub(xml_file,1,ind)
+  filename <- stringr::str_sub(xml_file,start = ind + 1, end = -4)
+  
+  facttable_filename <- paste0("fact_table_", filename,"csv")
+  facts_filename <- paste0("facts_", filename,"csv")
+  linkbase_filename <- paste0("linkbase_", filename,"csv")
+  pres_filename <- paste0("pres_", filename,"csv")
+  dim_filename <- paste0("dim_", filename,"csv")
+  cal_filename <- paste0("cal_", filename,"csv")
+  concepts_filename  <- paste0("concepts_", filename,"csv")
+  DTS_filename <- paste0("DTS_", filename,"csv")
+  formulea_filename  <- paste0("formulea_", filename,"csv")
+  anch_filename <- paste0("anch_", filename,"csv")
+  table_filename <- paste0("table_", filename,"csv")
+  view_filename <- paste0("view_", filename,"csv")
+  arcrole_filename <- paste0("arcrole_", filename,"csv")
+  roletypes_filename <- paste0("roletypes_", filename,"csv")
+  arcroletypes_filename <- paste0("arcroletypes_", filename,"csv")
+  
+  # filename <- paste0(filename,"csv")
   # arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/output.json", 
   #                 "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
   #                 "--DTS=xbrl/dtsfile.csv",
@@ -126,11 +147,24 @@ save_xbrl_tables <- function(xml_file){
   #                 "--table=xbrl/table_linkbase.csv",
   #                 "--pre=xbrl/presentation_file.csv")
   arelle_arg <- c("--validate", paste0("--file ", xml_file),
-                  "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
-                  "--DTS=xbrl/dtsfile.csv",
-                  paste0("--factTable=", filename),
-                  "--table=xbrl/table_linkbase.csv",
-                  "--pre=xbrl/presentation_file.csv")
+                  "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value,Period,Dimensions,EntityIndentifier",
+                  "--factTableCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value,Period,Dimensions,EntityIndentifier",
+                  "--relationshipCols Name,Documentation,References",
+                  paste0("--facts=", dir_name, facts_filename),
+                  paste0("--factTable=", dir_name, facttable_filename),
+                  paste0("--DTS=", dir_name, DTS_filename),
+                  paste0("--pre=",dir_name, pres_filename),
+                  paste0("--formulae=", dir_name, formulea_filename),
+                  paste0("--anch=", dir_name, anch_filename),
+                  paste0("--dim=", dir_name, dim_filename),
+                  paste0("--cal=", dir_name, cal_filename),
+                  paste0("--concepts=", dir_name, concepts_filename),
+                  paste0("--table=", dir_name, table_filename),
+                  paste0("--viewFile=", dir_name, view_filename),
+                  paste0("--viewarcrole=", dir_name, arcrole_filename),
+                  paste0("--roleTypes=", dir_name, roletypes_filename),
+                  paste0("--arcroleTypes=", dir_name, arcroletypes_filename))
+                  
   system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
           args = arelle_arg)
   return(filename)
@@ -139,19 +173,33 @@ save_xbrl_tables <- function(xml_file){
 read_arelle_tables <- function(filename){
   
   ### temporary code
-  browser()
   xbrl_doc <- XBRL::xbrlParse("./xbrl/brka-20240630_htm.xml")
   schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
   xbrl_xsd <- XBRL::xbrlParse(paste0("./xbrl/", schema_name)) # xsd file (xbrl schema)
   
   # read in xbrl doc
-  facts <- XBRL::xbrlProcessFacts(xbrl_doc)
+  facts_r <- XBRL::xbrlProcessFacts(xbrl_doc)
   contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
+  XBRL::xbrlFree(xbrl_doc)
+  XBRL::xbrlFree(xbrl_xsd)
   
-  
+  browser()
   ### end temporary code
-  
-  data <- read.csv(filename)
+  ind <- stringr::str_locate_all(filename, "/")[[1]][,1] |> xts::last()
+  dir_name <- stringr::str_sub(filename,1,ind)
+  filename <- stringr::str_sub(filename,start = ind + 1)
+  data <- read.csv(paste0(dir_name,"fact_table_", filename))
+  concepts <- read.csv(paste0(dir_name, "concepts_", filename))
+  pres <- read.csv(paste0(dir_name, "pres_", filename))
+  calc <- read.csv(paste0(dir_name, "cal_", filename))
+  dim <- read.csv(paste0(dir_name, "dim_", filename))
+  facts <- read.csv(paste0(dir_name, "facts_", filename))
+
+  # read in presentation file
+  # select statements
+  # check if names are unique fact identifiers - they are not, a number of facts should mach them, all with a different contexts.
+  # obtain matching facts
+  # find matching concepts or contexts.
   
   # find tables and classify them- can make this one function
   i_concept <- which(data[,1] != "")
