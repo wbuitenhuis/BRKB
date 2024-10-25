@@ -129,5 +129,10 @@ data_dictionary <- NasdaqDataLink.datatable('SHARADAR/INDICATORS')
 source("./scripts/functions/10Q_10K_functions.R")
 # debugonce(download.bkrb.quarterly.earnings)
 # setwd("/Users/wouterbuitenhuis/Documents/R/BRKB")
+x <- parse_xbrl()
+pres <- x$presentation
+ind <- pres$roleId == "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
+pres <- pres[ind, ]
 edgar_timeseries_10q()
+
 

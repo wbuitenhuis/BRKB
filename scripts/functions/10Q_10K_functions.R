@@ -20,12 +20,12 @@ edgar_timeseries_10q <- function(){
   
   cik <- "0001067983"
   type <- "10-Q"
-  
+  parse_xbrl()
   #filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
   filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
   #xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
   xml_filename <- "xbrl/brka-20240630_htm.xml"
-  #csv_filename <- save_xbrl_tables(xml_file = xml_filename)
+  #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
   csv_filename <- "xbrl/brka-20240630_htm.csv"
   browser()
   read_arelle_tables(csv_filename)
@@ -34,6 +34,8 @@ edgar_timeseries_10q <- function(){
 }
 
 edgar_link_to_filings <- function(cik, form = "10-Q"){
+  # Given a CIK, it gets links to the SEC filings of the specified form for all periods available,
+  # as long as total number of links is not more than 100
   
   # error checks
   if (form %in% c("10-Q", "10-K")){
@@ -41,6 +43,7 @@ edgar_link_to_filings <- function(cik, form = "10-Q"){
   } else {
     cat(paste("form has to be either 10-K or 10-Q, not", form))
     browser()
+    # probably can use for other forms as well, but this is currently not in scope.
   }
   cik <- as.character(cik)
   # Define the URL for the EDGAR search
@@ -65,7 +68,9 @@ edgar_link_to_filings <- function(cik, form = "10-Q"){
 }
 
 download_edgar_xbrlfiles <- function(url, destination_dir){
-    # get links of this specific filing
+    # given a url (obtained by edgar_link_to_filings()), it download the XBRL files 
+    # of the specific filing
+
     page <- download_edgar_file(url)
     page <- rvest::read_html(page)
     form_links <- page |>
@@ -115,8 +120,9 @@ download_edgar_xbrlfiles <- function(url, destination_dir){
     return(paste0(destination_dir, filename_xml))
 }
 
-save_xbrl_tables <- function(xml_file){
-  
+save_xbrl_tables_with_arelle <- function(xml_file){
+  # Given an XBRL file in XLM format it saves the Arelle output in CSV files for
+  # various tables Arelle can create.
   browser()
   # create file names
   ind <- stringr::str_locate_all(xml_file, "/")[[1]][,1] |> xts::last()
@@ -169,6 +175,41 @@ save_xbrl_tables <- function(xml_file){
           args = arelle_arg)
   return(filename)
 }
+
+parse_xbrl <- function(xml_file){
+  # this uses the XBRL package to parse XBRL and create relevant tables
+  # alternative is to use Arelle
+  xbrl_doc <- XBRL::xbrlParse("./xbrl/brka-20240630_htm.xml")
+  schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
+  xbrl_xsd <- XBRL::xbrlParse(paste0("./xbrl/", schema_name)) # xsd file (xbrl schema)
+  
+  # read in xbrl doc
+  elements <- XBRL::xbrlProcessElements(xbrl_xsd) # many more results with do all
+  roles <- XBRL::xbrlProcessRoles(xbrl_doc) # no result, but get result with do_all
+  labels <- XBRL::xbrlProcessLabels(xbrl_xsd) # no results with do_all
+  presentation <- XBRL::xbrlProcessArcs(xbrl_xsd, "presentation") # no results with do_all
+  definition <- XBRL::xbrlProcessArcs(xbrl_xsd, "definition") # no results with do_all
+  calculation <- XBRL::xbrlProcessArcs(xbrl_xsd, "calculation") # no results with do_all
+  contexts <- XBRL::xbrlProcessContexts(xbrl_doc) # same result with do_all
+  units <- XBRL::xbrlProcessUnits(xbrl_doc) # same result as with do_all
+  facts_r <- XBRL::xbrlProcessFacts(xbrl_doc) # same result as with do_all
+  footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc) # same result as with do_all
+  # all <- XBRL::xbrlDoAll(xml_file)
+  output = list("element"=elements,
+                "role"=roles,
+                "label"=labels,
+                "presentation"=presentation,
+                "definition"=definition,
+                "calculation"=calculation,
+                "context"=contexts,
+                "unit"=units,
+                "fact"=facts_r,
+                "footnote"=footnotes)
+  XBRL::xbrlFree(xbrl_doc)
+  XBRL::xbrlFree(xbrl_xsd)
+  return(output)
+}
+
 
 read_arelle_tables <- function(filename){
   
