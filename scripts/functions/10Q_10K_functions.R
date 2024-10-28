@@ -304,9 +304,114 @@ read_arelle_tables <- function(filename){
   
 
   r_xbrl <- parse_xbrl(filename) # should be xml file
-  a_xbrl <- xbrl_tables_with_arelle(filename)
+  # a_xbrl <- xbrl_tables_with_arelle(filename)
   browser()
+  # https://github.com/bergant/XBRLFiles 
   
+  # this actually works!
+  # library(tidyr)
+  library(dplyr)
+  r_xbrl$fact |>
+    filter(elementId == "us-gaap_InventoryNet") |>
+    left_join(r_xbrl$context, by = "contextId") |>
+    filter(is.na(dimension1)) |>
+    select(startDate, endDate, fact, unitId, elementId) |>
+    (knitr::kable)(format = "markdown")
+  
+  table(r_xbrl$role$type)
+  
+  htmlTable::htmlTable(data.frame(Statements=
+            with(
+            r_xbrl$role[r_xbrl$role$type=="Statement", ],
+            paste(roleId, "\n<br/>", definition, "\n<p/>")
+                                    )),
+            align = "l",
+            rnames = FALSE
+  )
+  
+  # this is really not different from what I figured out myself below,
+  # but a bit cleaner solution.
+  # pick the statement of interest:
+  role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
+  # prepare presentation linkbase : 
+  # filter by role_id an convert order to numeric
+  pres_statement1 <- 
+    r_xbrl$presentation |>
+    filter(roleId %in% role_id) |>
+    mutate(order = as.numeric(order))
+  # start with top element of the presentation tree
+  pres_df <- 
+    pres_statement1 |>
+    anti_join(pres_statement1, by = c("fromElementId" = "toElementId")) |>
+    select(elementId = fromElementId)
+  # breadth-first search
+  while({
+    df1 <- pres_df |>
+      na.omit() |>
+      left_join(pres_statement1, by = c("elementId" = "fromElementId")) |>
+      arrange(elementId, order) |>
+      select(elementId, child = toElementId);
+    nrow(df1) > 0
+  })
+  {
+    # add each new level to data frame
+    pres_df <- pres_df |> left_join(df1, by = "elementId")
+    names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
+  }
+  # add last level as special column (the hierarchy may not be uniformly deep)
+  pres_df["elementId"] <- 
+    apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
+  pres_df["elOrder"] <- 1:nrow(pres_df) 
+  
+  # the final data frame structure is
+  str(pres_df, vec.len = 1 )
+  
+  # Elements (or concepts in XBRL terminology) of the balance sheet are now
+  # gathered in data frame with presentation hierarchy levels. To see the
+  # numbers we have to join the elements with numbers from fact table and
+  # periods from context table:
+  
+  # join concepts with context, facts
+  pres_df_num <-
+    pres_df |>
+    left_join(r_xbrl$fact, by = "elementId") |>
+    left_join(r_xbrl$context, by = "contextId")  |>
+     filter(is.na(dimension1))  |>
+     filter(!is.na(endDate))  |>
+     select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
+     mutate( fact = as.numeric(fact) * 10^as.numeric(decimals))  # |>
+     # tidyr::spread(key = endDate, value = fact) # |>
+  #   arrange(elOrder)
+  # for some reason can have duplicates. This could be that the current code 
+  # only looks at one dimension. However, for BRKB liley multiple dimensions are
+  # relevant. Need to look deeper into dimensions. Also dig deeper into this 
+  # join statement. 
+  # Remove duplicates:
+  pres_df_num <- pres_df_num[!duplicated(pres_df_num), ]
+  # this breaks! 
+  pres_df_num_w<- tidyr::pivot_wider(data = pres_df_num, 
+                                   names_from = endDate, 
+                                   values_from = fact)
+  
+  # Values from `fact` are not uniquely identified; output will contain list-cols.
+  # • Use `values_fn = list` to suppress this warning.
+  # • Use `values_fn = {summary_fun}` to summarise duplicates.
+  # • Use the following dplyr code to identify duplicates.
+  # {data} |>
+  #   dplyr::summarise(n = dplyr::n(), .by = c(elOrder, level1, level2, level3, level4,
+  #                                            level5, level6, elementId, decimals, endDate)) |>
+  #   dplyr::filter(n > 1L) 
+  temp <- pres_df_num |> dplyr::summarise(n = dplyr::n(), .by = c(elOrder, level1, level2, level3, level4,
+                  level5, level6, elementId, endDate)) |>
+                  dplyr::filter(n > 1L) 
+  # looks like we have duplicates
+  sum(duplicated(pres_df_num))
+  pres_df_num[which(pres_df_num$elementId == "us-gaap_Goodwill"
+                    & pres_df_num$endDate == "2023-12-31"), ]
+  r_xbrl$fact[which(pres_df_num$elementId == "us-gaap_Goodwill"), ]
+  pres_df_num[which(pres_df_num$elementId == "us-gaap_DebtAndCapitalLeaseObligations"
+                    & pres_df_num$endDate == "2024-06-30"), ]
+  r_xbrl$fact[which(pres_df_num$elementId == "us-gaap_DebtAndCapitalLeaseObligations"), ]
   #### list Arelle vs R:
   # element - NULL vs 201 x 8
   # role - 792 x 3 vs 11 x 5
