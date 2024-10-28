@@ -10,6 +10,17 @@ download_edgar_file <- function(url){
     return(webdata)
 }
 
+download_file <- function(url){
+  # download files from edgar SEC website
+  # sets user agent
+  # ensure not to violate download limits
+  # ua <- httr::user_agent("w.buitenhuis@gmail.com")
+  # Sys.sleep(0.12)
+  webdata <- httr::GET(url)
+  httr::warn_for_status(webdata)
+  return(webdata)
+}
+
 edgar_timeseries_10q <- function(){
   # 1.) obtain CIK
   # 2.) download 10-Q and 10-K links
@@ -20,7 +31,6 @@ edgar_timeseries_10q <- function(){
   
   cik <- "0001067983"
   type <- "10-Q"
-  parse_xbrl()
   #filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
   filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
   #xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
@@ -28,7 +38,7 @@ edgar_timeseries_10q <- function(){
   #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
   csv_filename <- "xbrl/brka-20240630_htm.csv"
   browser()
-  read_arelle_tables(csv_filename)
+  read_arelle_tables(xml_filename)
   # 
   
 }
@@ -120,15 +130,15 @@ download_edgar_xbrlfiles <- function(url, destination_dir){
     return(paste0(destination_dir, filename_xml))
 }
 
-save_xbrl_tables_with_arelle <- function(xml_file){
+xbrl_tables_with_arelle <- function(xml_file){
   # Given an XBRL file in XLM format it saves the Arelle output in CSV files for
   # various tables Arelle can create.
-  browser()
-  # create file names
+  
   ind <- stringr::str_locate_all(xml_file, "/")[[1]][,1] |> xts::last()
   dir_name <- stringr::str_sub(xml_file,1,ind)
   filename <- stringr::str_sub(xml_file,start = ind + 1, end = -4)
-  
+
+  # create file names
   facttable_filename <- paste0("fact_table_", filename,"csv")
   facts_filename <- paste0("facts_", filename,"csv")
   linkbase_filename <- paste0("linkbase_", filename,"csv")
@@ -145,16 +155,9 @@ save_xbrl_tables_with_arelle <- function(xml_file){
   roletypes_filename <- paste0("roletypes_", filename,"csv")
   arcroletypes_filename <- paste0("arcroletypes_", filename,"csv")
   
-  # filename <- paste0(filename,"csv")
-  # arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/output.json", 
-  #                 "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
-  #                 "--DTS=xbrl/dtsfile.csv",
-  #                 "--factTable=xbrl/facttable.csv",
-  #                 "--table=xbrl/table_linkbase.csv",
-  #                 "--pre=xbrl/presentation_file.csv")
   arelle_arg <- c("--validate", paste0("--file ", xml_file),
-                  "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value,Period,Dimensions,EntityIndentifier",
-                  "--factTableCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value,Period,Dimensions,EntityIndentifier",
+                  "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value,Period,Dimensions,EntityScheme,EntityIdentifier",
+                  "--factTableCols=Label,Name,contextRef,unitRef,Value,Period,Dimensions,EntityIdentifier",
                   "--relationshipCols Name,Documentation,References",
                   paste0("--facts=", dir_name, facts_filename),
                   paste0("--factTable=", dir_name, facttable_filename),
@@ -169,23 +172,109 @@ save_xbrl_tables_with_arelle <- function(xml_file){
                   paste0("--viewFile=", dir_name, view_filename),
                   paste0("--viewarcrole=", dir_name, arcrole_filename),
                   paste0("--roleTypes=", dir_name, roletypes_filename),
-                  paste0("--arcroleTypes=", dir_name, arcroletypes_filename))
-                  
+                  paste0("--arcroleTypes=", dir_name, arcroletypes_filename),
+                  paste0("--table=", dir_name, table_filename))
+  # The following options need additional plugins:
+  # "--save-loadable-excel",
+  # "--package-DTS",
+  # "--save-EBA-tablesets",
+  # "--save-skos")
   system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
           args = arelle_arg)
-  return(filename)
+  
+  # elements <- read.csv(file = paste0(dir_name, ))
+  elements <- NULL
+  roles <- read.csv(file = paste0(dir_name, roletypes_filename))
+  # labels <- read.csv(file = paste0(dir_name, ))
+  labels <- NULL
+  presentation <- read.csv(file = paste0(dir_name, pres_filename))
+  # definition <- read.csv(file = paste0(dir_name, ))
+  definition <- NULL
+  calculation <- read.csv(file = paste0(dir_name, cal_filename))
+  contexts <- read.csv(file = paste0(dir_name, concepts_filename))
+  # units <- read.csv(file = paste0(dir_name, ))
+  units <- NULL
+  facts <- read.csv(file = paste0(dir_name, facts_filename))
+  # footnotes <- read.csv(file = paste0(dir_name, ))
+  footnotes <- NULL
+  output = list("element"=elements,
+                "role"=roles,
+                "label"=labels,
+                "presentation"=presentation,
+                "definition"=definition,
+                "calculation"=calculation,
+                "context"=contexts,
+                "unit"=units,
+                "fact"=facts,
+                "footnote"=footnotes)
+  return(output)
 }
 
-parse_xbrl <- function(xml_file){
+parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   # this uses the XBRL package to parse XBRL and create relevant tables
   # alternative is to use Arelle
-  xbrl_doc <- XBRL::xbrlParse("./xbrl/brka-20240630_htm.xml")
-  schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
-  xbrl_xsd <- XBRL::xbrlParse(paste0("./xbrl/", schema_name)) # xsd file (xbrl schema)
   
-  # read in xbrl doc
+  file_and_path <-function(file){
+    ind <- stringr::str_locate_all(file, "/")[[1]][,1] |> xts::last()
+    dir_name <- stringr::str_sub(file,1,ind)
+    filename <- stringr::str_sub(file,start = ind + 1)
+    return(list(path=dir_name, file=filename))
+  }
+
+  xml_filename <- file_and_path(xml_file)
+  cache_dir <- paste0(xml_filename$path, cache_dir)
+  
+  # create cache dir if needed
+  if (isFALSE(dir.exists(cache_dir))){
+    dir.create(cache_dir)
+  }
+  
+  
+  xbrl_doc <- XBRL::xbrlParse(xml_file)
+  schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
+  #xbrl_xsd <- XBRL::xbrlParse(paste0(dir_name, schema_name)) # xsd file (xbrl schema)
+  xbrl_xsd <- XBRL::xbrlParse(paste0(xml_filename$path, schema_name)) # xsd file (xbrl schema)
+  # linkbase <- XBRL::xbrlGetLinkbaseNames(xbrl_doc)
+  importNames<- XBRL::xbrlGetImportNames(xbrl_xsd)
+  xbrl_xsd_l <- NULL
+  for (i in 1:length(importNames)){
+    # really should make next three lines its own function, using it all the time
+    xsd_name <- file_and_path(importNames[i])
+    if (isFALSE(file.exists(paste0(cache_dir, xsd_name$file)))){
+      if (stringr::str_detect(importNames[i], ".sec.gov/")){
+        # dealing with a SEC download
+        xsd_file <- download_edgar_file(importNames[i])
+      } else {
+        # dealing with another file
+        xsd_file <- download_file(importNames[i])
+      }
+      xsd_file <- xsd_file |> httr::content("text")
+      write(xsd_file, paste0(cache_dir, xsd_name$file))
+    }
+    xbrl_xsd_l[[i]] <- XBRL::xbrlParse(paste0(cache_dir, xsd_name$file))
+  }
+  el <- ro <- lab <- NULL
+  
   elements <- XBRL::xbrlProcessElements(xbrl_xsd) # many more results with do all
-  roles <- XBRL::xbrlProcessRoles(xbrl_doc) # no result, but get result with do_all
+  # add elements from other xsd files
+  #sink("./logfile.txt")
+  #print("log file")
+  for (i in 1:length(xbrl_xsd_l)){
+    #browser()
+    #print(importNames[i])
+    el <- XBRL::xbrlProcessElements(xbrl_xsd_l[[i]])
+    elements <- rbind(elements,el)
+    # if (nrow(el[[i]]) > 0) browser()
+    #ro [[i]] <- XBRL::xbrlProcessRoles(xbrl_xsd[[i]])
+    # if (nrow(ro[[i]]) > 0) browser()
+    #lab[[i]] <- XBRL::xbrlProcessLabels(xbrl_xsd[[i]])
+    #if (isFALSE(is.null(lab[[i]]))) browser()
+  }
+  #sink()
+  #browser()
+  # read in xbrl doc
+  
+  roles <- XBRL::xbrlProcessRoles(xbrl_xsd) # same result as with do_all
   labels <- XBRL::xbrlProcessLabels(xbrl_xsd) # no results with do_all
   presentation <- XBRL::xbrlProcessArcs(xbrl_xsd, "presentation") # no results with do_all
   definition <- XBRL::xbrlProcessArcs(xbrl_xsd, "definition") # no results with do_all
@@ -213,19 +302,42 @@ parse_xbrl <- function(xml_file){
 
 read_arelle_tables <- function(filename){
   
-  ### temporary code
-  xbrl_doc <- XBRL::xbrlParse("./xbrl/brka-20240630_htm.xml")
-  schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
-  xbrl_xsd <- XBRL::xbrlParse(paste0("./xbrl/", schema_name)) # xsd file (xbrl schema)
-  
-  # read in xbrl doc
-  facts_r <- XBRL::xbrlProcessFacts(xbrl_doc)
-  contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
-  XBRL::xbrlFree(xbrl_doc)
-  XBRL::xbrlFree(xbrl_xsd)
-  
+
+  r_xbrl <- parse_xbrl(filename) # should be xml file
+  a_xbrl <- xbrl_tables_with_arelle(filename)
   browser()
-  ### end temporary code
+  
+  #### list Arelle vs R:
+  # element - NULL vs 201 x 8
+  # role - 792 x 3 vs 11 x 5
+  # label - NULL vs 1922 x 5
+  # presentation - 1559 x 14 vs 1211 x 11
+  # definition - NULL - 1094 x 11
+  # calculation - 220 x 12 vs 175 x 11
+  # context - 19044 x 13 vs 682 x 13
+  # unit - NULL vs 19 x 4
+  # fact - 3326 x 13 vs 1902 x 9
+  # R: Unique identifier: factId. 422 unique elementId, 682 contextID
+  # footnote - NULL vs 61 x 5
+  
+  # start with presentation file
+  pres <- r_xbrl$presentation
+  # find statements
+  ind <- stringr::str_detect(tolower(pres$roleId), "statement")
+  statements <- unique(pres$roleId[ind])
+  # analyze 1st statement. Hopefully this can be generalized for all statements
+  statement <- statements[1]
+  statement_pres <- pres[pres$roleId == statement, ]
+  write.csv(x = statement_pres, file = "./output/presentation.csv", col.names = TRUE)
+  strt <- match(statement_pres$fromElementId, r_xbrl$element$elementId)
+  end <- match(statement_pres$toElementId, r_xbrl$element$elementId)
+  browser()
+  # elementsIDs in elements table all start with "brka_", while statement table needs "us-gaap_"
+  # facts does have the right element IDs
+  
+  
+  
+  # old code trying to work with arelle table file
   ind <- stringr::str_locate_all(filename, "/")[[1]][,1] |> xts::last()
   dir_name <- stringr::str_sub(filename,1,ind)
   filename <- stringr::str_sub(filename,start = ind + 1)
