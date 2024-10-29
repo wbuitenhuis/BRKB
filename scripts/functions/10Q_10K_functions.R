@@ -37,7 +37,7 @@ edgar_timeseries_10q <- function(){
   xml_filename <- "xbrl/brka-20240630_htm.xml"
   #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
   csv_filename <- "xbrl/brka-20240630_htm.csv"
-  browser()
+
   # parse xbrl files
   r_xbrl <- parse_xbrl(xml_filename)
   statement <- xbrl_statement(r_xbrl)
@@ -306,6 +306,56 @@ xbrl_statement <- function(xbrl.vars){
   # largely based on sample code from:
   # https://github.com/bergant/XBRLFiles 
   
+  remove_duplicated_facts <- function(facts){
+    # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
+    # It is possible to have duplicated facts, that are only unique in their FactID.
+    # It is also possible to have duplicated facts, but they may differ in precision, 
+    # declared language or unit. For instance different currencies.
+    # This function looks for duplicated facts and removes them. It currently does not check
+    # for differences within the facts [this could be added later]. It only checks for unique
+    # contextID and elementID.
+    library(dplyr)
+    full_dupes <- facts |> select(!factId) |> duplicated()
+    # these are 100% duplicates
+    dupes <- facts |> select(elementId, contextId) |> duplicated()
+    
+    #remove first full duplicates
+    print(paste("Removing", sum(full_dupes), "duplicated facts."))
+    facts <- facts[!full_dupes, ]
+    
+    
+    # now recheck for other dupes
+    dupes <- facts |> select(elementId, contextId) |> duplicated()
+    print(paste(sum(dupes), "facts left with same element and context ID, but either different values or units,"))
+    # these are the duplicated that can be full duplicates, or caused by:
+    # currency differences
+    # language differences
+    # precision differences
+    # digit differences
+    # look into cause of these
+    browser()
+    not_usd <- facts |> filter(dupes & unitId != "U_USD") |> nrow()
+    if (not_usd > 0){
+      print(paste(not_usd, "facts are not in USD. Removing those"))
+      x <- facts |> filter(isFALSE(dupes & unitId != "U_USD"))
+    }
+    
+    if (sum(dupes) > 0){
+      ind <- which(dupes)
+      for (i in 1:length(ind)){
+        browser()
+        element <- facts$elementId[ind[i]]
+        context <- facts$contextId[ind[i]]
+        x <- facts |> filter(contextId == context & elementId == element)
+        
+        
+      }
+      
+    }
+    facts <- facts[!dupes,]
+    return(facts)
+  }
+  
   statement <- function(xbrl.vars, role_id){
     # based on: https://github.com/bergant/XBRLFiles
     library(dplyr)
@@ -361,13 +411,22 @@ xbrl_statement <- function(xbrl.vars){
       select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
       mutate( fact = as.numeric(fact) * 10^as.numeric(decimals))
     browser()
-    pres_df_num_w <- pres_df |> tidyr::pivot_wider( 
+    pres_df_num_w <- pres_df_num |> tidyr::pivot_wider( 
                             names_from = endDate, 
                             values_from = fact)
-      
+    
+    # have duplicates error, find duplicates
+    ind <- which(pres_df_num$elementId == "us-gaap_AvailableForSaleSecuritiesDebtSecurities" & pres_df_num$endDate == "2024-06-30")
+    
+    pres_df_num |>
+      dplyr::summarise(n = dplyr::n(), .by = c(elOrder, level1, level2, level3, level4, level5, level6, elementId, decimals, endDate)) |>
+      dplyr::filter(n > 1L) 
+    
     pres_df_num_w  <-  pres_df_num_w |> arrange(elOrder)
     
     # next step would be to add labels, make calculations, join cocepts with labels
+    # apparently it is possible to have two facts with the same elementId and contextId, but with different factIds otherwise completely identical
+    # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
     
     # labels for our financial statement (role_id) in "en-US" language:
     x_labels <-
@@ -408,8 +467,11 @@ xbrl_statement <- function(xbrl.vars){
       emphasize.strong.rows = which(!is.na(balance_sheet_pretty$calcRoleId))
     )
   }
-
+  
+  xbrl.vars$fact <-   remove_duplicated_facts(xbrl.vars$fact)
   role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
+  
+  
   table <- statement(xbrl.vars, role_id)
   
   
