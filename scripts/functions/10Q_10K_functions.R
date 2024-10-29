@@ -38,7 +38,9 @@ edgar_timeseries_10q <- function(){
   #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
   csv_filename <- "xbrl/brka-20240630_htm.csv"
   browser()
-  read_arelle_tables(xml_filename)
+  # parse xbrl files
+  r_xbrl <- parse_xbrl(xml_filename)
+  statement <- xbrl_statement(r_xbrl)
   # 
   
 }
@@ -300,29 +302,132 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
 }
 
 
-read_arelle_tables <- function(filename){
-  
-
-  r_xbrl <- parse_xbrl(filename) # should be xml file
-  # a_xbrl <- xbrl_tables_with_arelle(filename)
-  browser()
+xbrl_statement <- function(xbrl.vars){
+  # largely based on sample code from:
   # https://github.com/bergant/XBRLFiles 
+  
+  statement <- function(xbrl.vars, role_id){
+    # based on: https://github.com/bergant/XBRLFiles
+    library(dplyr)
+    
+    # prepare presentation linkbase : 
+    # filter by role_id and convert order to numeric
+    pres <- 
+      xbrl.vars$presentation |>
+      filter(roleId %in% role_id) |>
+      mutate(order = as.numeric(order))
+    
+    # start with top element of the presentation tree
+    pres_df <- 
+      pres |>
+      anti_join(pres, by = c("fromElementId" = "toElementId")) |>
+      select(elementId = fromElementId)
+    
+    # breadth-first search
+    # add subsequent elements to presentation tree
+    while({
+      df1 <- pres_df |>
+        na.omit() |>
+        left_join(pres, by = c("elementId" = "fromElementId")) |>
+        arrange(elementId, order) |>
+        select(elementId, child = toElementId);
+      nrow(df1) > 0
+    }) 
+    {
+      # add each new level to data frame
+      pres_df <- pres_df |> left_join(df1, by = "elementId")
+      names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
+    }
+    # add last level as special column (the hierarchy may not be uniformly deep)
+    pres_df["elementId"] <- 
+      apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
+    pres_df["elOrder"] <- 1:nrow(pres_df) 
+    
+    # the final data frame structure is
+    browser()
+    str(pres_df, vec.len = 1 )
+
+    # join concepts with context, facts
+    pres_df_num <-
+      pres_df |>
+      left_join(xbrl.vars$fact, by = "elementId") 
+    pres_df_num <- pres_df_num |>
+      left_join(xbrl.vars$context, by = "contextId") 
+    pres_df_num <- pres_df_num |>
+      filter(is.na(dimension1)) 
+    pres_df_num <- pres_df_num |>
+      filter(!is.na(endDate)) 
+    pres_df_num <- pres_df_num|>
+      select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
+      mutate( fact = as.numeric(fact) * 10^as.numeric(decimals))
+    browser()
+    pres_df_num_w <- pres_df |> tidyr::pivot_wider( 
+                            names_from = endDate, 
+                            values_from = fact)
+      
+    pres_df_num_w  <-  pres_df_num_w |> arrange(elOrder)
+    
+    # next step would be to add labels, make calculations, join cocepts with labels
+    
+    # labels for our financial statement (role_id) in "en-US" language:
+    x_labels <-
+      xbrl.vars$presentation |>
+      filter(roleId == role_id) |>
+      select(elementId = toElementId, labelRole = preferredLabel) |>
+      semi_join(pres_df_num, by = "elementId") |>
+      left_join(xbrl.vars$label, by = c("elementId", "labelRole")) |>
+      filter(lang == "en-US") |>
+      select(elementId, labelString)
+    
+    # calculated elements in this statement component
+    x_calc <- xbrl.vars$calculation |>
+      filter(roleId == role_id) |>
+      select(elementId = fromElementId, calcRoleId = arcrole) |>
+      unique()
+    
+    # join concepts and numbers with labels
+    balance_sheet_pretty <- pres_df_num |>
+      left_join(x_labels, by = "elementId") |>
+      left_join(x_calc, by = "elementId") |>
+      select(labelString, contains("2013"), contains("2012"), calcRoleId)
+    
+    
+    names(balance_sheet_pretty)[1] <- 
+      "CONDENSED CONSOLIDATED BALANCE SHEETS (mio USD $)"
+    
+    names(balance_sheet_pretty)[2:3] <-
+      format(as.Date(names(balance_sheet_pretty)[2:3]), "%Y")
+    # rendering balance sheet
+    library(pander)
+    pandoc.table(
+      balance_sheet_pretty[,1:3],
+      style = "rmarkdown",
+      justify = c("left", "right", "right"),
+      split.table = 300,
+      big.mark = ",",
+      emphasize.strong.rows = which(!is.na(balance_sheet_pretty$calcRoleId))
+    )
+  }
+
+  role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
+  table <- statement(xbrl.vars, role_id)
+  
   
   # this actually works!
   # library(tidyr)
   library(dplyr)
-  r_xbrl$fact |>
+  xbrl.vars$fact |>
     filter(elementId == "us-gaap_InventoryNet") |>
     left_join(r_xbrl$context, by = "contextId") |>
     filter(is.na(dimension1)) |>
     select(startDate, endDate, fact, unitId, elementId) |>
     (knitr::kable)(format = "markdown")
   
-  table(r_xbrl$role$type)
+  table(xbrl.vars$role$type)
   
   htmlTable::htmlTable(data.frame(Statements=
             with(
-            r_xbrl$role[r_xbrl$role$type=="Statement", ],
+            xbrl.vars$role[xbrl.vars$role$type=="Statement", ],
             paste(roleId, "\n<br/>", definition, "\n<p/>")
                                     )),
             align = "l",
@@ -332,11 +437,10 @@ read_arelle_tables <- function(filename){
   # this is really not different from what I figured out myself below,
   # but a bit cleaner solution.
   # pick the statement of interest:
-  role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
   # prepare presentation linkbase : 
   # filter by role_id an convert order to numeric
   pres_statement1 <- 
-    r_xbrl$presentation |>
+    xbrl.vars$presentation |>
     filter(roleId %in% role_id) |>
     mutate(order = as.numeric(order))
   # start with top element of the presentation tree
@@ -374,8 +478,8 @@ read_arelle_tables <- function(filename){
   # join concepts with context, facts
   pres_df_num <-
     pres_df |>
-    left_join(r_xbrl$fact, by = "elementId") |>
-    left_join(r_xbrl$context, by = "contextId")  |>
+    left_join(xbrl.vars$fact, by = "elementId") |>
+    left_join(xbrl.vars$context, by = "contextId")  |>
      filter(is.na(dimension1))  |>
      filter(!is.na(endDate))  |>
      select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
@@ -412,332 +516,340 @@ read_arelle_tables <- function(filename){
   pres_df_num[which(pres_df_num$elementId == "us-gaap_DebtAndCapitalLeaseObligations"
                     & pres_df_num$endDate == "2024-06-30"), ]
   r_xbrl$fact[which(pres_df_num$elementId == "us-gaap_DebtAndCapitalLeaseObligations"), ]
-  #### list Arelle vs R:
-  # element - NULL vs 201 x 8
-  # role - 792 x 3 vs 11 x 5
-  # label - NULL vs 1922 x 5
-  # presentation - 1559 x 14 vs 1211 x 11
-  # definition - NULL - 1094 x 11
-  # calculation - 220 x 12 vs 175 x 11
-  # context - 19044 x 13 vs 682 x 13
-  # unit - NULL vs 19 x 4
-  # fact - 3326 x 13 vs 1902 x 9
-  # R: Unique identifier: factId. 422 unique elementId, 682 contextID
-  # footnote - NULL vs 61 x 5
-  
-  # start with presentation file
-  pres <- r_xbrl$presentation
-  # find statements
-  ind <- stringr::str_detect(tolower(pres$roleId), "statement")
-  statements <- unique(pres$roleId[ind])
-  # analyze 1st statement. Hopefully this can be generalized for all statements
-  statement <- statements[1]
-  statement_pres <- pres[pres$roleId == statement, ]
-  write.csv(x = statement_pres, file = "./output/presentation.csv", col.names = TRUE)
-  strt <- match(statement_pres$fromElementId, r_xbrl$element$elementId)
-  end <- match(statement_pres$toElementId, r_xbrl$element$elementId)
-  browser()
-  # elementsIDs in elements table all start with "brka_", while statement table needs "us-gaap_"
-  # facts does have the right element IDs
-  
-  
-  
-  # old code trying to work with arelle table file
-  ind <- stringr::str_locate_all(filename, "/")[[1]][,1] |> xts::last()
-  dir_name <- stringr::str_sub(filename,1,ind)
-  filename <- stringr::str_sub(filename,start = ind + 1)
-  data <- read.csv(paste0(dir_name,"fact_table_", filename))
-  concepts <- read.csv(paste0(dir_name, "concepts_", filename))
-  pres <- read.csv(paste0(dir_name, "pres_", filename))
-  calc <- read.csv(paste0(dir_name, "cal_", filename))
-  dim <- read.csv(paste0(dir_name, "dim_", filename))
-  facts <- read.csv(paste0(dir_name, "facts_", filename))
-
-  # read in presentation file
-  # select statements
-  # check if names are unique fact identifiers - they are not, a number of facts should mach them, all with a different contexts.
-  # obtain matching facts
-  # find matching concepts or contexts.
-  
-  # find tables and classify them- can make this one function
-  i_concept <- which(data[,1] != "")
-  concept_names <- data[i_concept,1]
-  concept_id <- stringr::str_sub(concept_names,end = 6)
-  ind <- stringr::str_locate_all(concept_names, " - ")
-  indf <- function(x){
-    output <- c(x[1,2] + 1, x[2,1] - 1)
-  }
-  v <- lapply(X=ind, FUN = indf)
-  v <- t(matrix(unlist(v), nrow = 2))
-  colnames(v) <- c("start", "end")
-  concept_classification <- stringr::str_sub(concept_names, v)
-  label <- stringr::str_sub(concept_names, start = v[,"end"] + 4)
-  end <- c(i_concept[-1]-1, nrow(data))
-  tables <- data.frame(start = i_concept, end = end, class = concept_classification,
-                       name = label)
-  # select only tables that contain statements
-  tables <- tables[tolower(tables$class) == "statement", ]
-  # this would be end of first function
-  table <- data[tables$start[1]:tables$end[1], ]
-  browser()
-  indf <- function(x){
-    which(x != "")[1]
-  }
-  hierarchy <- apply(table,1,indf)
-  names(hierarchy) <- 1:length(hierarchy)
-  label <- table[,1:max(hierarchy)]
-  keep <- label != ""
-  label <- label[keep]
-  data <- table[, (max(hierarchy)+1):ncol(table)]
-  data[data ==""] <- NA
-  no_obs <- is.na(data)
-  keep_col <- apply(no_obs,2,sum) != nrow(data)
-  data <- data[,keep]
-  date <- stringr::str_extract(colnames(data), "[:digit:]{2,}.[:digit:]{2,}.[:digit:]{2,}")
-  date <- lubridate::as_date(date, format = "...")
-  date <- stringr::str_replace_all(date, ".", "-")
-  
-  
-  # for each table extract information. For now will work with one table first
-  # Will take table 1
-  
-  
-  # check if table id is fully number
-  # find first and second " - " in between is table classification
-  # select concept_classification == tolower("statement")
-  # second till end - concept label
-  # subset data for 1st statement
-  
-  # check which columns have at least some data, erase all with only missing data
-  # review what is left - in particular look at column names
-  # extract period from column names
-  # extract entity from column names
-  # extract other items from column names?
-  # subset data based on column classifications (period, entity etc.)
-  
 }
-
-
 
 
 ################### can ignore everything below ###############
-test.download.bkrb <- function(){
-  # Work in progress
 
-  url <- "https://www.berkshirehathaway.com/reports.html"
-  
-  dir_name <- "./rawdata/financial_reports/"
-  # Load necessary libraries
+# oldwork <-function(){
+# # this contains useful code, but started different approach
+# # Not at all completed
+#   
+#   #### list Arelle vs R:
+#   # element - NULL vs 201 x 8
+#   # role - 792 x 3 vs 11 x 5
+#   # label - NULL vs 1922 x 5
+#   # presentation - 1559 x 14 vs 1211 x 11
+#   # definition - NULL - 1094 x 11
+#   # calculation - 220 x 12 vs 175 x 11
+#   # context - 19044 x 13 vs 682 x 13
+#   # unit - NULL vs 19 x 4
+#   # fact - 3326 x 13 vs 1902 x 9
+#   # R: Unique identifier: factId. 422 unique elementId, 682 contextID
+#   # footnote - NULL vs 61 x 5
+#   
+#   # start with presentation file
+#   pres <- r_xbrl$presentation
+#   # find statements
+#   ind <- stringr::str_detect(tolower(pres$roleId), "statement")
+#   statements <- unique(pres$roleId[ind])
+#   # analyze 1st statement. Hopefully this can be generalized for all statements
+#   statement <- statements[1]
+#   statement_pres <- pres[pres$roleId == statement, ]
+#   write.csv(x = statement_pres, file = "./output/presentation.csv", col.names = TRUE)
+#   strt <- match(statement_pres$fromElementId, r_xbrl$element$elementId)
+#   end <- match(statement_pres$toElementId, r_xbrl$element$elementId)
+#   browser()
+#   # elementsIDs in elements table all start with "brka_", while statement table needs "us-gaap_"
+#   # facts does have the right element IDs
+#   
+#   
+#   
+#   # old code trying to work with arelle table file
+#   ind <- stringr::str_locate_all(filename, "/")[[1]][,1] |> xts::last()
+#   dir_name <- stringr::str_sub(filename,1,ind)
+#   filename <- stringr::str_sub(filename,start = ind + 1)
+#   data <- read.csv(paste0(dir_name,"fact_table_", filename))
+#   concepts <- read.csv(paste0(dir_name, "concepts_", filename))
+#   pres <- read.csv(paste0(dir_name, "pres_", filename))
+#   calc <- read.csv(paste0(dir_name, "cal_", filename))
+#   dim <- read.csv(paste0(dir_name, "dim_", filename))
+#   facts <- read.csv(paste0(dir_name, "facts_", filename))
+# 
+#   # read in presentation file
+#   # select statements
+#   # check if names are unique fact identifiers - they are not, a number of facts should mach them, all with a different contexts.
+#   # obtain matching facts
+#   # find matching concepts or contexts.
+#   
+#   # find tables and classify them- can make this one function
+#   i_concept <- which(data[,1] != "")
+#   concept_names <- data[i_concept,1]
+#   concept_id <- stringr::str_sub(concept_names,end = 6)
+#   ind <- stringr::str_locate_all(concept_names, " - ")
+#   indf <- function(x){
+#     output <- c(x[1,2] + 1, x[2,1] - 1)
+#   }
+#   v <- lapply(X=ind, FUN = indf)
+#   v <- t(matrix(unlist(v), nrow = 2))
+#   colnames(v) <- c("start", "end")
+#   concept_classification <- stringr::str_sub(concept_names, v)
+#   label <- stringr::str_sub(concept_names, start = v[,"end"] + 4)
+#   end <- c(i_concept[-1]-1, nrow(data))
+#   tables <- data.frame(start = i_concept, end = end, class = concept_classification,
+#                        name = label)
+#   # select only tables that contain statements
+#   tables <- tables[tolower(tables$class) == "statement", ]
+#   # this would be end of first function
+#   table <- data[tables$start[1]:tables$end[1], ]
+#   browser()
+#   indf <- function(x){
+#     which(x != "")[1]
+#   }
+#   hierarchy <- apply(table,1,indf)
+#   names(hierarchy) <- 1:length(hierarchy)
+#   label <- table[,1:max(hierarchy)]
+#   keep <- label != ""
+#   label <- label[keep]
+#   data <- table[, (max(hierarchy)+1):ncol(table)]
+#   data[data ==""] <- NA
+#   no_obs <- is.na(data)
+#   keep_col <- apply(no_obs,2,sum) != nrow(data)
+#   data <- data[,keep]
+#   date <- stringr::str_extract(colnames(data), "[:digit:]{2,}.[:digit:]{2,}.[:digit:]{2,}")
+#   date <- lubridate::as_date(date, format = "...")
+#   date <- stringr::str_replace_all(date, ".", "-")
+#   
+#   
+#   # for each table extract information. For now will work with one table first
+#   # Will take table 1
+#   
+#   
+#   # check if table id is fully number
+#   # find first and second " - " in between is table classification
+#   # select concept_classification == tolower("statement")
+#   # second till end - concept label
+#   # subset data for 1st statement
+#   
+#   # check which columns have at least some data, erase all with only missing data
+#   # review what is left - in particular look at column names
+#   # extract period from column names
+#   # extract entity from column names
+#   # extract other items from column names?
+#   # subset data based on column classifications (period, entity etc.)
+#   
+# }
 
-  # Define the CIK for Berkshire Hathaway
-  cik <- "0001067983"
-  type <- "10-Q"
-  items_on_page <- "100"
-  # Define the URL for the EDGAR search
-  url <- paste0("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=", cik, 
-                "&type=", type, "&dateb=&owner=exclude&count=", items_on_page)
-  
-  # Get the webpage content
-  ua <- httr::user_agent("w.buitenhuis@gmail.com")
-  page <- httr::GET(url, ua) |> rvest::read_html()
-  
-  # Extract the links to the 10-Q filings
-  index_links <- page |>
-    rvest::html_elements("a") |>
-    rvest::html_attr("href") 
-  index_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
-  # ind <- grepl("Archives/edgar/data", index_links, value = TRUE)
-  ind <- stringr::str_detect(index_links,"Archives/edgar/data")
-  index_links <- index_links[ind]
-  index_links_desc <- index_links_desc[ind]
 
-  #alternative approach - nneds to be tested
-  # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
-  # filings <- 
-  #   read_html(url) %>%
-  #   html_nodes(xpath='//*[@id="seriesDiv"]/table') %>%
-  #   html_table() %>%
-  #   as.data.frame() %>%
-  #   janitor::clean_names()
-  # 
-  
-  
 
-  # Download the first 10-Q filing
-  if (length(index_links) > 0) {
-    # get links of this specific filing
-    Sys.sleep(0.12)
-    page <- httr::GET(paste0("https://www.sec.gov", index_links[1]), ua) |> rvest::read_html()
-    form_links <- page |>
-      rvest::html_elements("a") |>
-      rvest::html_attr("href") 
-    form_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
-    # find the correct link with the html filing
-    ind <- stringr::str_detect(form_links,"Archives/edgar/data")
-    form_links <- form_links[ind]
-    form_links_desc <- form_links_desc[ind]
-    
-    #form_links <- grep("Archives/edgar/data", form_links, value = TRUE)
-    ind <- stringr::str_detect(form_links,"-")
-    form_links <- form_links[ind]
-    form_links_desc <- form_links_desc[ind]
-    start_filename <- lapply(stringr::str_locate_all(form_links, "/"), xts::last) |> unlist()
-    start_filename <- start_filename[seq(from = 1, by = 2, to = length(start_filename))] + 1
-    filename <- stringr::str_sub(form_links, start_filename, stringr::str_length(form_links))
-    dash_pos <- stringr::str_locate(filename,"-")[,1]
-    left_str <- stringr::str_sub(filename, 1, dash_pos - 1)
-    right_str <- stringr::str_sub(filename, dash_pos + 1)
-    dot_pos <- stringr::str_locate(right_str,"\\.")[,1]
-    date_str <- stringr::str_sub(right_str, 1, dot_pos - 1)
-    extension <- stringr::str_sub(right_str, dot_pos + 1, stringr::str_length(right_str))
-    is_date <- stringr::str_detect(date_str, "[:digit:]{6,8}")
-    is_htm <- stringr::str_detect(extension, "htm")
-    is_xml <- stringr::str_detect(extension, "xml")
-    is_txt <- stringr::str_detect(extension, "txt")
-    is_xsd <- stringr::str_detect(extension, "xsd")
-    form_link_txt <- form_links[is_date & is_txt]
-    form_link_html <- form_links[is_date & is_htm]
-    form_link_xml <- form_links[is_date & is_xml]
-    form_link_xsd <- form_links[is_date & is_xsd]
-    filename_xsd<- filename[is_date & is_xsd]
-    if (length(form_link_txt) != 1) browser()
-    if (length(form_link_html) != 1) browser()
-    browser()
-    date_str <- date_str[is_date & is_htm]
-    
-    # https://xbrl.us/join-us/membership/individual/
-    # https://www.sec.gov/search-filings/edgar-application-programming-interfaces
-    # https://www.lexjansen.com/pharmasug-cn/2021/SR/Pharmasug-China-2021-SR031.pdf
-    # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
-    
-    Sys.sleep(0.2)
-    url_txt <- paste0("https://www.sec.gov",form_link_txt)
-    url_html <- paste0("https://www.sec.gov",form_link_html)
-    url_xml <- paste0("https://www.sec.gov",form_link_xml)
-    url_xsd <- paste0("https://www.sec.gov",form_link_xsd)
-    webdata_txt <- httr::GET(url_txt, httr::user_agent("w.buitenhuis@gmail.com")) 
-    Sys.sleep(0.2)
-    webdata_html <- httr::GET(url_html, httr::user_agent("w.buitenhuis@gmail.com")) 
-    html <- httr::content(webdata_html, "text")
-    html <- xml2::read_html(webdata_html) # use java script error
-    
-    Sys.sleep(0.2)
-    webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
-    Sys.sleep(0.2)
-    webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
-    # setwd("./xbrl/")
-    xml <- webdata_xml |> httr::content("text")
-    write(xml, "./xbrl/test.xml")
-    xsd <- webdata_xsd |> httr::content("text")
-    write(xsd, filename_xsd)
-#   test <- XBRL::xbrlDoAll("test.xml") # does not work
-    
-    browser()
-    # parse data
-    xbrl_doc <- XBRL::xbrlParse("./xbrl/test.xml")
-    schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
-    xbrl_xsd <- XBRL::xbrlParse(schema_name) # xsd file (xbrl schema)
-    
-    # read in xbrl doc
-    facts <- XBRL::xbrlProcessFacts(xbrl_doc)
-    contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
-    units <- XBRL::xbrlProcessUnits(xbrl_doc)
-    footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc)
-    linkbase <- XBRL::xbrlGetLinkbaseNames(xbrl_doc) # empty
-    
-    # read in schema file
-    labels <- XBRL::xbrlProcessLabels(xbrl_xsd)
-    elements <- XBRL::xbrlProcessElements(xbrl_xsd)
-    roles <- XBRL::xbrlProcessRoles(xbrl_xsd)
-    importnames <- XBRL::xbrlGetImportNames(xbrl_xsd)
-    
-    for (i in 1:length(importnames)){
-      cat(importnames[i])
-      ind <- stringr::str_locate_all(importnames[i], "/")[[1]] |> xts::last()
-      ind <- ind[1,1] + 1
-      filename <- stringr::str_sub(importnames[i], start = ind)
-      webdata <- httr::GET(importnames[i])
-      httr::warn_for_status(webdata)
-      import_xsd <- httr::content(webdata, "text")
-      write(import_xsd, file = paste0("./xbrl/xbrl.Cache/", filename))
-    }
-    browser()
-    # arcs <- XBRL::xbrlProcessArcs(xbrl_doc) breaks argument arcType is missing
-    
-    # dir <- getwd()
-    # setwd("./xbrl/")
-    # XBRL::xbrlDoAll("test.xml", cache.dir = "xbrl.Cache", verbose = TRUE, 
-    #                 delete.cached.inst = FALSE)
-    # # breaks when trying. to download a https:// file which is already in the cache dir
-    # setwd(dir)
-    # # XBRL::xbrlFree(xbrl_doc)
-    
-    system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
-            args = c("--about","--save-loadable-excel"))
-    
-    arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/facttable.csv")
-    arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/output.json", 
-                    "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
-                    "--DTS=xbrl/dtsfile.csv",
-                    "--factTable=xbrl/facttable.csv",
-                    "--table=xbrl/table_linkbase.csv",
-                    "--pre=xbrl/presentation_file.csv")
-    system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
-            args = arelle_arg)
-    
-    # python arelleCmdLine.py --validate --file="yourfile.xbrl" --output="output.json" --tables
-    
-    
-    # arelleCmdLine -f c:\temp\test.rss -v --disclosureSystem efm-pragmatic-all-years --store-to-XBRL-DB "localhost\SQLEXPRESS,,sqlLogin,sqlPassword,,90,mssqlSemantic"
-    # python arelle.py --validate --file="yourfile.xbrl" --output="output.csv"
 
-    ind <- which(facts$elementId == "us-gaap_WeightedAverageNumberOfSharesOutstandingBasic") 
-    ind <- stringr::str_detect(facts$elementId, "NumberOfSharesOutstanding")
-    unique(facts$elementId[ind])
-    
-    # b <- chromote::ChromoteSession$new()
-    # b$Network$setUserAgentOverride(userAgent = "w.buitenhuis@gmail.com")
-    # webdataLIVE_html <- rvest::read_html_live(url_html) # enable javascript
-    # # the html version seems to only show the java script, not the html being populated.
-    # the $view() method does show the javascript generated page though.
-    # Sys.sleep(6.5)
-    # webdataLIVE_xml <- rvest::read_html_live(url_xml) 
-    # x <- webdataLIVE_xml |> rvest::html_text()
-    
-    Sys.sleep(0.2)
-    webdata <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com"))
-    useragent <- webdata$request$options$useragent
-    httr::warn_for_status(webdata)
-    # bin <- httr::content(webdata, "raw")
-    text <- httr::content(webdata_txt, "text")
-    
-    webdataLIVE_txt <- rvest::read_html_live(url_txt) 
-    # need to use read_html_live (using chromite, otherwise get 403 error
-    text <- webdataLIVE_txt$html_elements((css = "pre")) |> rvest::html_text()
-    # all relevant text is part of one big pre tag. this effectively removes the tag
-    writeLines(text, "./output/test.txt")
-    # we now get an html doc
-    # html <- rvest::read_html( "./output/test.txt")
-    
-    tables <- html |> rvest::html_element("table")
-    x <- tables |> rvest::html_table()
-    # look for correct file to download
-    
-    # download_url <- paste0("https://www.sec.gov", links[1])
-    # debugonce(download_edgar_file)
-    # download_edgar_file(download_url, destfile = paste0(dir_name, "Berkshire_Hathaway_10Q.pdf"))
-    # cat("Downloaded:", download_url, "\n")
-  } else {
-    cat("No 10-Q filings found.\n")
-  }
-  
-  browser()
-  
-  
-  file.list <- list.files(dir_name)
-  save_dt <- file.info(paste0(dir_name, file.list))$atime
-  last_file <- file.list[which(save_dt == max(save_dt))[1]]
-
-}
+# test.download.bkrb <- function(){
+#   # Work in progress
+# 
+#   url <- "https://www.berkshirehathaway.com/reports.html"
+#   
+#   dir_name <- "./rawdata/financial_reports/"
+#   # Load necessary libraries
+# 
+#   # Define the CIK for Berkshire Hathaway
+#   cik <- "0001067983"
+#   type <- "10-Q"
+#   items_on_page <- "100"
+#   # Define the URL for the EDGAR search
+#   url <- paste0("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=", cik, 
+#                 "&type=", type, "&dateb=&owner=exclude&count=", items_on_page)
+#   
+#   # Get the webpage content
+#   ua <- httr::user_agent("w.buitenhuis@gmail.com")
+#   page <- httr::GET(url, ua) |> rvest::read_html()
+#   
+#   # Extract the links to the 10-Q filings
+#   index_links <- page |>
+#     rvest::html_elements("a") |>
+#     rvest::html_attr("href") 
+#   index_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
+#   # ind <- grepl("Archives/edgar/data", index_links, value = TRUE)
+#   ind <- stringr::str_detect(index_links,"Archives/edgar/data")
+#   index_links <- index_links[ind]
+#   index_links_desc <- index_links_desc[ind]
+# 
+#   #alternative approach - nneds to be tested
+#   # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
+#   # filings <- 
+#   #   read_html(url) %>%
+#   #   html_nodes(xpath='//*[@id="seriesDiv"]/table') %>%
+#   #   html_table() %>%
+#   #   as.data.frame() %>%
+#   #   janitor::clean_names()
+#   # 
+#   
+#   
+# 
+#   # Download the first 10-Q filing
+#   if (length(index_links) > 0) {
+#     # get links of this specific filing
+#     Sys.sleep(0.12)
+#     page <- httr::GET(paste0("https://www.sec.gov", index_links[1]), ua) |> rvest::read_html()
+#     form_links <- page |>
+#       rvest::html_elements("a") |>
+#       rvest::html_attr("href") 
+#     form_links_desc <- page |> rvest::html_elements("a") |> rvest::html_text()
+#     # find the correct link with the html filing
+#     ind <- stringr::str_detect(form_links,"Archives/edgar/data")
+#     form_links <- form_links[ind]
+#     form_links_desc <- form_links_desc[ind]
+#     
+#     #form_links <- grep("Archives/edgar/data", form_links, value = TRUE)
+#     ind <- stringr::str_detect(form_links,"-")
+#     form_links <- form_links[ind]
+#     form_links_desc <- form_links_desc[ind]
+#     start_filename <- lapply(stringr::str_locate_all(form_links, "/"), xts::last) |> unlist()
+#     start_filename <- start_filename[seq(from = 1, by = 2, to = length(start_filename))] + 1
+#     filename <- stringr::str_sub(form_links, start_filename, stringr::str_length(form_links))
+#     dash_pos <- stringr::str_locate(filename,"-")[,1]
+#     left_str <- stringr::str_sub(filename, 1, dash_pos - 1)
+#     right_str <- stringr::str_sub(filename, dash_pos + 1)
+#     dot_pos <- stringr::str_locate(right_str,"\\.")[,1]
+#     date_str <- stringr::str_sub(right_str, 1, dot_pos - 1)
+#     extension <- stringr::str_sub(right_str, dot_pos + 1, stringr::str_length(right_str))
+#     is_date <- stringr::str_detect(date_str, "[:digit:]{6,8}")
+#     is_htm <- stringr::str_detect(extension, "htm")
+#     is_xml <- stringr::str_detect(extension, "xml")
+#     is_txt <- stringr::str_detect(extension, "txt")
+#     is_xsd <- stringr::str_detect(extension, "xsd")
+#     form_link_txt <- form_links[is_date & is_txt]
+#     form_link_html <- form_links[is_date & is_htm]
+#     form_link_xml <- form_links[is_date & is_xml]
+#     form_link_xsd <- form_links[is_date & is_xsd]
+#     filename_xsd<- filename[is_date & is_xsd]
+#     if (length(form_link_txt) != 1) browser()
+#     if (length(form_link_html) != 1) browser()
+#     browser()
+#     date_str <- date_str[is_date & is_htm]
+#     
+#     # https://xbrl.us/join-us/membership/individual/
+#     # https://www.sec.gov/search-filings/edgar-application-programming-interfaces
+#     # https://www.lexjansen.com/pharmasug-cn/2021/SR/Pharmasug-China-2021-SR031.pdf
+#     # https://www.r-bloggers.com/2020/02/a-walk-though-of-accessing-financial-statements-with-xbrl-in-r-part-1/
+#     
+#     Sys.sleep(0.2)
+#     url_txt <- paste0("https://www.sec.gov",form_link_txt)
+#     url_html <- paste0("https://www.sec.gov",form_link_html)
+#     url_xml <- paste0("https://www.sec.gov",form_link_xml)
+#     url_xsd <- paste0("https://www.sec.gov",form_link_xsd)
+#     webdata_txt <- httr::GET(url_txt, httr::user_agent("w.buitenhuis@gmail.com")) 
+#     Sys.sleep(0.2)
+#     webdata_html <- httr::GET(url_html, httr::user_agent("w.buitenhuis@gmail.com")) 
+#     html <- httr::content(webdata_html, "text")
+#     html <- xml2::read_html(webdata_html) # use java script error
+#     
+#     Sys.sleep(0.2)
+#     webdata_xml <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com")) 
+#     Sys.sleep(0.2)
+#     webdata_xsd <- httr::GET(url_xsd, httr::user_agent("w.buitenhuis@gmail.com")) 
+#     # setwd("./xbrl/")
+#     xml <- webdata_xml |> httr::content("text")
+#     write(xml, "./xbrl/test.xml")
+#     xsd <- webdata_xsd |> httr::content("text")
+#     write(xsd, filename_xsd)
+# #   test <- XBRL::xbrlDoAll("test.xml") # does not work
+#     
+#     browser()
+#     # parse data
+#     xbrl_doc <- XBRL::xbrlParse("./xbrl/test.xml")
+#     schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
+#     xbrl_xsd <- XBRL::xbrlParse(schema_name) # xsd file (xbrl schema)
+#     
+#     # read in xbrl doc
+#     facts <- XBRL::xbrlProcessFacts(xbrl_doc)
+#     contexts <- XBRL::xbrlProcessContexts(xbrl_doc)
+#     units <- XBRL::xbrlProcessUnits(xbrl_doc)
+#     footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc)
+#     linkbase <- XBRL::xbrlGetLinkbaseNames(xbrl_doc) # empty
+#     
+#     # read in schema file
+#     labels <- XBRL::xbrlProcessLabels(xbrl_xsd)
+#     elements <- XBRL::xbrlProcessElements(xbrl_xsd)
+#     roles <- XBRL::xbrlProcessRoles(xbrl_xsd)
+#     importnames <- XBRL::xbrlGetImportNames(xbrl_xsd)
+#     
+#     for (i in 1:length(importnames)){
+#       cat(importnames[i])
+#       ind <- stringr::str_locate_all(importnames[i], "/")[[1]] |> xts::last()
+#       ind <- ind[1,1] + 1
+#       filename <- stringr::str_sub(importnames[i], start = ind)
+#       webdata <- httr::GET(importnames[i])
+#       httr::warn_for_status(webdata)
+#       import_xsd <- httr::content(webdata, "text")
+#       write(import_xsd, file = paste0("./xbrl/xbrl.Cache/", filename))
+#     }
+#     browser()
+#     # arcs <- XBRL::xbrlProcessArcs(xbrl_doc) breaks argument arcType is missing
+#     
+#     # dir <- getwd()
+#     # setwd("./xbrl/")
+#     # XBRL::xbrlDoAll("test.xml", cache.dir = "xbrl.Cache", verbose = TRUE, 
+#     #                 delete.cached.inst = FALSE)
+#     # # breaks when trying. to download a https:// file which is already in the cache dir
+#     # setwd(dir)
+#     # # XBRL::xbrlFree(xbrl_doc)
+#     
+#     system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
+#             args = c("--about","--save-loadable-excel"))
+#     
+#     arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/facttable.csv")
+#     arelle_arg <- c("--validate", "--file xbrl/test.xml", "--facts=xbrl/output.json", 
+#                     "--factListCols=Label,Name,contextRef,unitRef,Dec,Prec,Lang,Value",
+#                     "--DTS=xbrl/dtsfile.csv",
+#                     "--factTable=xbrl/facttable.csv",
+#                     "--table=xbrl/table_linkbase.csv",
+#                     "--pre=xbrl/presentation_file.csv")
+#     system2("/Applications/Arelle.app/contents/MacOS/arelleCmdLine", 
+#             args = arelle_arg)
+#     
+#     # python arelleCmdLine.py --validate --file="yourfile.xbrl" --output="output.json" --tables
+#     
+#     
+#     # arelleCmdLine -f c:\temp\test.rss -v --disclosureSystem efm-pragmatic-all-years --store-to-XBRL-DB "localhost\SQLEXPRESS,,sqlLogin,sqlPassword,,90,mssqlSemantic"
+#     # python arelle.py --validate --file="yourfile.xbrl" --output="output.csv"
+# 
+#     ind <- which(facts$elementId == "us-gaap_WeightedAverageNumberOfSharesOutstandingBasic") 
+#     ind <- stringr::str_detect(facts$elementId, "NumberOfSharesOutstanding")
+#     unique(facts$elementId[ind])
+#     
+#     # b <- chromote::ChromoteSession$new()
+#     # b$Network$setUserAgentOverride(userAgent = "w.buitenhuis@gmail.com")
+#     # webdataLIVE_html <- rvest::read_html_live(url_html) # enable javascript
+#     # # the html version seems to only show the java script, not the html being populated.
+#     # the $view() method does show the javascript generated page though.
+#     # Sys.sleep(6.5)
+#     # webdataLIVE_xml <- rvest::read_html_live(url_xml) 
+#     # x <- webdataLIVE_xml |> rvest::html_text()
+#     
+#     Sys.sleep(0.2)
+#     webdata <- httr::GET(url_xml, httr::user_agent("w.buitenhuis@gmail.com"))
+#     useragent <- webdata$request$options$useragent
+#     httr::warn_for_status(webdata)
+#     # bin <- httr::content(webdata, "raw")
+#     text <- httr::content(webdata_txt, "text")
+#     
+#     webdataLIVE_txt <- rvest::read_html_live(url_txt) 
+#     # need to use read_html_live (using chromite, otherwise get 403 error
+#     text <- webdataLIVE_txt$html_elements((css = "pre")) |> rvest::html_text()
+#     # all relevant text is part of one big pre tag. this effectively removes the tag
+#     writeLines(text, "./output/test.txt")
+#     # we now get an html doc
+#     # html <- rvest::read_html( "./output/test.txt")
+#     
+#     tables <- html |> rvest::html_element("table")
+#     x <- tables |> rvest::html_table()
+#     # look for correct file to download
+#     
+#     # download_url <- paste0("https://www.sec.gov", links[1])
+#     # debugonce(download_edgar_file)
+#     # download_edgar_file(download_url, destfile = paste0(dir_name, "Berkshire_Hathaway_10Q.pdf"))
+#     # cat("Downloaded:", download_url, "\n")
+#   } else {
+#     cat("No 10-Q filings found.\n")
+#   }
+#   
+#   browser()
+#   
+#   
+#   file.list <- list.files(dir_name)
+#   save_dt <- file.info(paste0(dir_name, file.list))$atime
+#   last_file <- file.list[which(save_dt == max(save_dt))[1]]
+# 
+# }
 
 
