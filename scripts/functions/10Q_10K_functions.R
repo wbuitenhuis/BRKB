@@ -212,17 +212,17 @@ xbrl_tables_with_arelle <- function(xml_file){
   return(output)
 }
 
+file_and_path <-function(file){
+  ind <- stringr::str_locate_all(file, "/")[[1]][,1] |> xts::last()
+  dir_name <- stringr::str_sub(file,1,ind)
+  filename <- stringr::str_sub(file,start = ind + 1)
+  return(list(path=dir_name, file=filename))
+}
+
 parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   # this uses the XBRL package to parse XBRL and create relevant tables
   # alternative is to use Arelle
   
-  file_and_path <-function(file){
-    ind <- stringr::str_locate_all(file, "/")[[1]][,1] |> xts::last()
-    dir_name <- stringr::str_sub(file,1,ind)
-    filename <- stringr::str_sub(file,start = ind + 1)
-    return(list(path=dir_name, file=filename))
-  }
-
   xml_filename <- file_and_path(xml_file)
   cache_dir <- paste0(xml_filename$path, cache_dir)
   
@@ -231,12 +231,9 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
     dir.create(cache_dir)
   }
   
-  
   xbrl_doc <- XBRL::xbrlParse(xml_file)
   schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
-  #xbrl_xsd <- XBRL::xbrlParse(paste0(dir_name, schema_name)) # xsd file (xbrl schema)
   xbrl_xsd <- XBRL::xbrlParse(paste0(xml_filename$path, schema_name)) # xsd file (xbrl schema)
-  # linkbase <- XBRL::xbrlGetLinkbaseNames(xbrl_doc)
   importNames<- XBRL::xbrlGetImportNames(xbrl_xsd)
   xbrl_xsd_l <- NULL
   for (i in 1:length(importNames)){
@@ -259,23 +256,11 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   
   elements <- XBRL::xbrlProcessElements(xbrl_xsd) # many more results with do all
   # add elements from other xsd files
-  #sink("./logfile.txt")
-  #print("log file")
   for (i in 1:length(xbrl_xsd_l)){
-    #browser()
-    #print(importNames[i])
     el <- XBRL::xbrlProcessElements(xbrl_xsd_l[[i]])
     elements <- rbind(elements,el)
-    # if (nrow(el[[i]]) > 0) browser()
-    #ro [[i]] <- XBRL::xbrlProcessRoles(xbrl_xsd[[i]])
-    # if (nrow(ro[[i]]) > 0) browser()
-    #lab[[i]] <- XBRL::xbrlProcessLabels(xbrl_xsd[[i]])
-    #if (isFALSE(is.null(lab[[i]]))) browser()
   }
-  #sink()
-  #browser()
-  # read in xbrl doc
-  
+
   roles <- XBRL::xbrlProcessRoles(xbrl_xsd) # same result as with do_all
   labels <- XBRL::xbrlProcessLabels(xbrl_xsd) # no results with do_all
   presentation <- XBRL::xbrlProcessArcs(xbrl_xsd, "presentation") # no results with do_all
@@ -285,7 +270,6 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   units <- XBRL::xbrlProcessUnits(xbrl_doc) # same result as with do_all
   facts_r <- XBRL::xbrlProcessFacts(xbrl_doc) # same result as with do_all
   footnotes <- XBRL::xbrlProcessFootnotes(xbrl_doc) # same result as with do_all
-  # all <- XBRL::xbrlDoAll(xml_file)
   output = list("element"=elements,
                 "role"=roles,
                 "label"=labels,
@@ -311,49 +295,68 @@ xbrl_statement <- function(xbrl.vars){
     # It is possible to have duplicated facts, that are only unique in their FactID.
     # It is also possible to have duplicated facts, but they may differ in precision, 
     # declared language or unit. For instance different currencies.
-    # This function looks for duplicated facts and removes them. It currently does not check
-    # for differences within the facts [this could be added later]. It only checks for unique
-    # contextID and elementID.
+    # This function looks for duplicated facts and removes them. 
     library(dplyr)
     full_dupes <- facts |> select(!factId) |> duplicated()
     # these are 100% duplicates
-    dupes <- facts |> select(elementId, contextId) |> duplicated()
-    
-    #remove first full duplicates
+    # remove first full duplicates
     print(paste("Removing", sum(full_dupes), "duplicated facts."))
     facts <- facts[!full_dupes, ]
     
-    
     # now recheck for other dupes
     dupes <- facts |> select(elementId, contextId) |> duplicated()
-    print(paste(sum(dupes), "facts left with same element and context ID, but either different values or units,"))
+    print(paste(sum(dupes), "facts left with same element and context ID, 
+                but either different values or units,"))
     # these are the duplicated that can be full duplicates, or caused by:
     # currency differences
     # language differences
     # precision differences
-    # digit differences
     # look into cause of these
-    browser()
-    not_usd <- facts |> filter(dupes & unitId != "U_USD") |> nrow()
-    if (not_usd > 0){
-      print(paste(not_usd, "facts are not in USD. Removing those"))
-      x <- facts |> filter(isFALSE(dupes & unitId != "U_USD"))
-    }
-    
-    if (sum(dupes) > 0){
-      ind <- which(dupes)
-      for (i in 1:length(ind)){
-        browser()
+    ind <- which(dupes)
+    remove_rows <- NULL
+    if (length(ind) > 0){
+      for(i in 1:length(ind)){
         element <- facts$elementId[ind[i]]
         context <- facts$contextId[ind[i]]
-        x <- facts |> filter(contextId == context & elementId == element)
-        
-        
+        dupe_fact <- facts |> filter(elementId == element & contextId == context)
+        if (nrow(dupe_fact) == 1) next
+        test_different_units <- sum(dupe_fact$unitId[1] == dupe_fact$unitId) != nrow(dupe_fact)
+        if (test_different_units){
+          not_usd <- dupe_fact$unitId != "U_USD"
+          if (sum(not_usd) > 0){
+            print(paste(sum(not_usd), "facts are not in USD. Removing those"))
+            remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
+            dispose <- dupe_fact$factId[not_usd]
+            remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
+          } else {
+            browser()
+            # in this case unit differences is unrelated to USD. Need to examine
+          }
+          next
+        }
+        test_different_precision <- sum(dupe_fact$decimals[1] == dupe_fact$decimals) != nrow(dupe_fact)
+        if (test_different_precision){
+          # look for max precision
+          dupe_fact$decimals <- as.numeric(dupe_fact$decimals)
+          dispose <- (dupe_fact$decimals < max(dupe_fact$decimals))
+          dispose <- dupe_fact$factId[dispose]
+          print(paste("Remove", length(dispose), "objects that have alternative 
+                      facts with higher precision."))
+          remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
+          next
+        }
+        test_different_values <- sum(dupe_fact$fact[1] == dupe_fact$fact) != nrow(dupe_fact)
+        if (test_different_values){
+          browser()
+          # in this case you have conflicting facts. Need to look into
+          remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
+        }
+        browser()
       }
-      
+      keep <- setdiff(1:nrow(facts), remove_rows)
+      facts <- facts[keep,]
     }
-    facts <- facts[!dupes,]
-    return(facts)
+  return(facts)
   }
   
   statement <- function(xbrl.vars, role_id){
@@ -370,11 +373,13 @@ xbrl_statement <- function(xbrl.vars){
     # start with top element of the presentation tree
     pres_df <- 
       pres |>
-      anti_join(pres, by = c("fromElementId" = "toElementId")) |>
+      anti_join(pres, by = c("fromElementId" = "toElementId")) 
+    pres_df <- pres_df |>
       select(elementId = fromElementId)
     
     # breadth-first search
     # add subsequent elements to presentation tree
+    browser()
     while({
       df1 <- pres_df |>
         na.omit() |>
@@ -385,18 +390,21 @@ xbrl_statement <- function(xbrl.vars){
     }) 
     {
       # add each new level to data frame
+      if (sum(!(df1$elementId %in% pres_df$elementId)) > 0){
+        browser()
+        # have an issue here no elementId match.
+        # need to trouble shoot.
+      }
       pres_df <- pres_df |> left_join(df1, by = "elementId")
       names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
+      
     }
+    browser()
     # add last level as special column (the hierarchy may not be uniformly deep)
     pres_df["elementId"] <- 
       apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
     pres_df["elOrder"] <- 1:nrow(pres_df) 
     
-    # the final data frame structure is
-    browser()
-    str(pres_df, vec.len = 1 )
-
     # join concepts with context, facts
     pres_df_num <-
       pres_df |>
@@ -409,25 +417,16 @@ xbrl_statement <- function(xbrl.vars){
       filter(!is.na(endDate)) 
     pres_df_num <- pres_df_num|>
       select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
-      mutate( fact = as.numeric(fact) * 10^as.numeric(decimals))
-    browser()
-    pres_df_num_w <- pres_df_num |> tidyr::pivot_wider( 
+      mutate(fact = as.numeric(fact) * 10^as.numeric(decimals))
+    pres_df_num <- pres_df_num |> tidyr::pivot_wider( 
                             names_from = endDate, 
                             values_from = fact)
-    
-    # have duplicates error, find duplicates
-    ind <- which(pres_df_num$elementId == "us-gaap_AvailableForSaleSecuritiesDebtSecurities" & pres_df_num$endDate == "2024-06-30")
-    
-    pres_df_num |>
-      dplyr::summarise(n = dplyr::n(), .by = c(elOrder, level1, level2, level3, level4, level5, level6, elementId, decimals, endDate)) |>
-      dplyr::filter(n > 1L) 
-    
-    pres_df_num_w  <-  pres_df_num_w |> arrange(elOrder)
-    
-    # next step would be to add labels, make calculations, join cocepts with labels
+    pres_df_num  <-  pres_df_num |> arrange(elOrder)
+
+    # next step would be to add labels, make calculations, join concepts with labels
     # apparently it is possible to have two facts with the same elementId and contextId, but with different factIds otherwise completely identical
     # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
-    
+  
     # labels for our financial statement (role_id) in "en-US" language:
     x_labels <-
       xbrl.vars$presentation |>
@@ -444,141 +443,52 @@ xbrl_statement <- function(xbrl.vars){
       select(elementId = fromElementId, calcRoleId = arcrole) |>
       unique()
     
-    # join concepts and numbers with labels
-    balance_sheet_pretty <- pres_df_num |>
+    # find relevant dates
+    # 1.) most recent date
+    # 2.) date with least missing observations
+    dates <- colnames(pres_df_num)[stringr::str_detect(colnames(pres_df_num), "[:digit:]{4}")]
+    most_recent_dt <- max(as.Date(dates)) |> as.character()
+    dates <- dates[dates != as.character(most_recent_dt)]
+    nr_missing_obs <- pres_df_num |> select(all_of(dates)) |> is.na() |> apply(2, sum)
+    least_missing_date <- dates[nr_missing_obs == min(nr_missing_obs)]
+    
+    statement_pretty <- pres_df_num |>
       left_join(x_labels, by = "elementId") |>
-      left_join(x_calc, by = "elementId") |>
-      select(labelString, contains("2013"), contains("2012"), calcRoleId)
+      left_join(x_calc, by = "elementId") |> select("labelString", 
+                                                    matches(most_recent_dt), 
+                                                    matches(least_missing_date))
     
-    
-    names(balance_sheet_pretty)[1] <- 
-      "CONDENSED CONSOLIDATED BALANCE SHEETS (mio USD $)"
-    
-    names(balance_sheet_pretty)[2:3] <-
-      format(as.Date(names(balance_sheet_pretty)[2:3]), "%Y")
-    # rendering balance sheet
-    library(pander)
-    pandoc.table(
-      balance_sheet_pretty[,1:3],
-      style = "rmarkdown",
-      justify = c("left", "right", "right"),
-      split.table = 300,
-      big.mark = ",",
-      emphasize.strong.rows = which(!is.na(balance_sheet_pretty$calcRoleId))
-    )
+    return(statement_pretty)
   }
   
   xbrl.vars$fact <-   remove_duplicated_facts(xbrl.vars$fact)
+  
+  #this looks promising but would need to be debugged - it is breaking
+  # library(finstr)
+  # statements <- finstr::xbrl_get_statements(xbrl.vars)
+
+  role_ids <- xbrl.vars$role$roleId[xbrl.vars$role$type == "Statement"]
+    
   role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
+  browser()
+  statement_name <- file_and_path(role_ids[2])$file
+  table <-statement(xbrl.vars, role_ids[2])
   
+  browser()
+  table <- NULL
+  for (i in 1:length(role_ids)){
+    browser()
+    print(role_ids[i])
+    table[[i]] <- statement(xbrl.vars, role_ids[i])
+  }
+  browser()
+}   
   
-  table <- statement(xbrl.vars, role_id)
   
   
   # this actually works!
   # library(tidyr)
-  library(dplyr)
-  xbrl.vars$fact |>
-    filter(elementId == "us-gaap_InventoryNet") |>
-    left_join(r_xbrl$context, by = "contextId") |>
-    filter(is.na(dimension1)) |>
-    select(startDate, endDate, fact, unitId, elementId) |>
-    (knitr::kable)(format = "markdown")
   
-  table(xbrl.vars$role$type)
-  
-  htmlTable::htmlTable(data.frame(Statements=
-            with(
-            xbrl.vars$role[xbrl.vars$role$type=="Statement", ],
-            paste(roleId, "\n<br/>", definition, "\n<p/>")
-                                    )),
-            align = "l",
-            rnames = FALSE
-  )
-  
-  # this is really not different from what I figured out myself below,
-  # but a bit cleaner solution.
-  # pick the statement of interest:
-  # prepare presentation linkbase : 
-  # filter by role_id an convert order to numeric
-  pres_statement1 <- 
-    xbrl.vars$presentation |>
-    filter(roleId %in% role_id) |>
-    mutate(order = as.numeric(order))
-  # start with top element of the presentation tree
-  pres_df <- 
-    pres_statement1 |>
-    anti_join(pres_statement1, by = c("fromElementId" = "toElementId")) |>
-    select(elementId = fromElementId)
-  # breadth-first search
-  while({
-    df1 <- pres_df |>
-      na.omit() |>
-      left_join(pres_statement1, by = c("elementId" = "fromElementId")) |>
-      arrange(elementId, order) |>
-      select(elementId, child = toElementId);
-    nrow(df1) > 0
-  })
-  {
-    # add each new level to data frame
-    pres_df <- pres_df |> left_join(df1, by = "elementId")
-    names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
-  }
-  # add last level as special column (the hierarchy may not be uniformly deep)
-  pres_df["elementId"] <- 
-    apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
-  pres_df["elOrder"] <- 1:nrow(pres_df) 
-  
-  # the final data frame structure is
-  str(pres_df, vec.len = 1 )
-  
-  # Elements (or concepts in XBRL terminology) of the balance sheet are now
-  # gathered in data frame with presentation hierarchy levels. To see the
-  # numbers we have to join the elements with numbers from fact table and
-  # periods from context table:
-  
-  # join concepts with context, facts
-  pres_df_num <-
-    pres_df |>
-    left_join(xbrl.vars$fact, by = "elementId") |>
-    left_join(xbrl.vars$context, by = "contextId")  |>
-     filter(is.na(dimension1))  |>
-     filter(!is.na(endDate))  |>
-     select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
-     mutate( fact = as.numeric(fact) * 10^as.numeric(decimals))  # |>
-     # tidyr::spread(key = endDate, value = fact) # |>
-  #   arrange(elOrder)
-  # for some reason can have duplicates. This could be that the current code 
-  # only looks at one dimension. However, for BRKB liley multiple dimensions are
-  # relevant. Need to look deeper into dimensions. Also dig deeper into this 
-  # join statement. 
-  # Remove duplicates:
-  pres_df_num <- pres_df_num[!duplicated(pres_df_num), ]
-  # this breaks! 
-  pres_df_num_w<- tidyr::pivot_wider(data = pres_df_num, 
-                                   names_from = endDate, 
-                                   values_from = fact)
-  
-  # Values from `fact` are not uniquely identified; output will contain list-cols.
-  # • Use `values_fn = list` to suppress this warning.
-  # • Use `values_fn = {summary_fun}` to summarise duplicates.
-  # • Use the following dplyr code to identify duplicates.
-  # {data} |>
-  #   dplyr::summarise(n = dplyr::n(), .by = c(elOrder, level1, level2, level3, level4,
-  #                                            level5, level6, elementId, decimals, endDate)) |>
-  #   dplyr::filter(n > 1L) 
-  temp <- pres_df_num |> dplyr::summarise(n = dplyr::n(), .by = c(elOrder, level1, level2, level3, level4,
-                  level5, level6, elementId, endDate)) |>
-                  dplyr::filter(n > 1L) 
-  # looks like we have duplicates
-  sum(duplicated(pres_df_num))
-  pres_df_num[which(pres_df_num$elementId == "us-gaap_Goodwill"
-                    & pres_df_num$endDate == "2023-12-31"), ]
-  r_xbrl$fact[which(pres_df_num$elementId == "us-gaap_Goodwill"), ]
-  pres_df_num[which(pres_df_num$elementId == "us-gaap_DebtAndCapitalLeaseObligations"
-                    & pres_df_num$endDate == "2024-06-30"), ]
-  r_xbrl$fact[which(pres_df_num$elementId == "us-gaap_DebtAndCapitalLeaseObligations"), ]
-}
 
 
 ################### can ignore everything below ###############
