@@ -260,7 +260,7 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
     el <- XBRL::xbrlProcessElements(xbrl_xsd_l[[i]])
     elements <- rbind(elements,el)
   }
-
+  # note that context element is missing for all observations in presentation
   roles <- XBRL::xbrlProcessRoles(xbrl_xsd) # same result as with do_all
   labels <- XBRL::xbrlProcessLabels(xbrl_xsd) # no results with do_all
   presentation <- XBRL::xbrlProcessArcs(xbrl_xsd, "presentation") # no results with do_all
@@ -379,31 +379,26 @@ xbrl_statement <- function(xbrl.vars){
     
     # breadth-first search
     # add subsequent elements to presentation tree
-    browser()
     while({
-      df1 <- pres_df |>
-        na.omit() |>
-        left_join(pres, by = c("elementId" = "fromElementId")) |>
-        arrange(elementId, order) |>
-        select(elementId, child = toElementId);
+      df1 <- pres_df |> na.omit() 
+      df1 <- df1 |> left_join(pres, by = c("elementId" = "fromElementId")) 
+      df1 <- df1 |> arrange(elementId, order) 
+      df1 <- df1 |> select(elementId, child = toElementId);
       nrow(df1) > 0
     }) 
     {
       # add each new level to data frame
-      if (sum(!(df1$elementId %in% pres_df$elementId)) > 0){
-        browser()
-        # have an issue here no elementId match.
-        # need to trouble shoot.
-      }
+      prev_pres_df <- pres_df
       pres_df <- pres_df |> left_join(df1, by = "elementId")
       names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
-      
+      # if (sum(is.na(pres_df$elementId)) > 0) browser()
     }
     browser()
     # add last level as special column (the hierarchy may not be uniformly deep)
+    # WB: this ensures there is an elementId for all rows
     pres_df["elementId"] <- 
       apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
-    pres_df["elOrder"] <- 1:nrow(pres_df) 
+    pres_df["elOrder"] <- 1:nrow(pres_df)
     
     # join concepts with context, facts
     pres_df_num <-
@@ -411,13 +406,13 @@ xbrl_statement <- function(xbrl.vars){
       left_join(xbrl.vars$fact, by = "elementId") 
     pres_df_num <- pres_df_num |>
       left_join(xbrl.vars$context, by = "contextId") 
-    pres_df_num <- pres_df_num |>
-      filter(is.na(dimension1)) 
+    pres_df_num <- pres_df_num |> # this is an issue for BRKB if you want segment reporting
+      filter(is.na(dimension1)) # keeps only rows where there is no dimension1 value 
     pres_df_num <- pres_df_num |>
       filter(!is.na(endDate)) 
     pres_df_num <- pres_df_num|>
       select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
-      mutate(fact = as.numeric(fact) * 10^as.numeric(decimals))
+      mutate(fact = as.numeric(fact) * 10^as.numeric(decimals)) # should also keep dimension1 for brkb income statements
     pres_df_num <- pres_df_num |> tidyr::pivot_wider( 
                             names_from = endDate, 
                             values_from = fact)
@@ -470,10 +465,10 @@ xbrl_statement <- function(xbrl.vars){
   role_ids <- xbrl.vars$role$roleId[xbrl.vars$role$type == "Statement"]
     
   role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
-  browser()
-  statement_name <- file_and_path(role_ids[2])$file
-  table <-statement(xbrl.vars, role_ids[2])
-  
+  # browser()
+  statement_name <- file_and_path(role_ids[3])$file
+  table <-statement(xbrl.vars, role_ids[3])
+  # 
   browser()
   table <- NULL
   for (i in 1:length(role_ids)){
