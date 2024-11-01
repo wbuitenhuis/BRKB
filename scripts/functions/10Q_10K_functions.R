@@ -40,6 +40,8 @@ edgar_timeseries_10q <- function(){
 
   # parse xbrl files
   r_xbrl <- parse_xbrl(xml_filename)
+  #a_xbrl <- xbrl_tables_with_arelle(xml_filename)
+  #browser()
   statement <- xbrl_statement(r_xbrl)
   # 
   
@@ -252,17 +254,34 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
     }
     xbrl_xsd_l[[i]] <- XBRL::xbrlParse(paste0(cache_dir, xsd_name$file))
   }
+  more_importnames <- NULL
+  for (i in 1:length(xbrl_xsd_l)){
+    impn <- XBRL::xbrlGetImportNames(xbrl_xsd_l[[i]])
+    more_importnames <- c(more_importnames, impn)
+  }
+  more_importnames <- unique(more_importnames)
+  more_importnames <- more_importnames[!(more_importnames %in% importNames)]
+  # check for URLS
+  browser()
   el <- ro <- lab <- NULL
   
   elements <- XBRL::xbrlProcessElements(xbrl_xsd) # many more results with do all
+  labels <- XBRL::xbrlProcessLabels(xbrl_xsd) # no results with do_all
+  roles <- XBRL::xbrlProcessRoles(xbrl_xsd) # same result as with do_all
   # add elements from other xsd files
   for (i in 1:length(xbrl_xsd_l)){
     el <- XBRL::xbrlProcessElements(xbrl_xsd_l[[i]])
     elements <- rbind(elements,el)
+    lab <- XBRL::xbrlProcessLabels(xbrl_xsd_l[[i]])
+    labels <- rbind(labels, lab)
+    ro <- XBRL::xbrlProcessRoles(xbrl_xsd_l[[i]])
+    roles <- rbind(roles, ro)
+    if (!is.null(XBRL::xbrlProcessArcs(xbrl_xsd_l[[i]], "presentation"))) browser()
+    if (!is.null(XBRL::xbrlProcessArcs(xbrl_xsd_l[[i]], "definition"))) browser()
+    if (!is.null(XBRL::xbrlProcessArcs(xbrl_xsd_l[[i]], "calculation"))) browser()
   }
   # note that context element is missing for all observations in presentation
-  roles <- XBRL::xbrlProcessRoles(xbrl_xsd) # same result as with do_all
-  labels <- XBRL::xbrlProcessLabels(xbrl_xsd) # no results with do_all
+  
   presentation <- XBRL::xbrlProcessArcs(xbrl_xsd, "presentation") # no results with do_all
   definition <- XBRL::xbrlProcessArcs(xbrl_xsd, "definition") # no results with do_all
   calculation <- XBRL::xbrlProcessArcs(xbrl_xsd, "calculation") # no results with do_all
@@ -289,7 +308,8 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
 xbrl_statement <- function(xbrl.vars){
   # largely based on sample code from:
   # https://github.com/bergant/XBRLFiles 
-  
+  source("./scripts/finstr/finstr.R")
+    
   remove_duplicated_facts <- function(facts){
     # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
     # It is possible to have duplicated facts, that are only unique in their FactID.
@@ -406,18 +426,37 @@ xbrl_statement <- function(xbrl.vars){
       left_join(xbrl.vars$fact, by = "elementId") 
     pres_df_num <- pres_df_num |>
       left_join(xbrl.vars$context, by = "contextId") 
-    pres_df_num <- pres_df_num |> # this is an issue for BRKB if you want segment reporting
-      filter(is.na(dimension1)) # keeps only rows where there is no dimension1 value 
+    #pres_df_num <- pres_df_num |> # this is an issue for BRKB if you want segment reporting
+    #  filter(is.na(dimension1)) # keeps only rows where there is no dimension1 value 
     pres_df_num <- pres_df_num |>
       filter(!is.na(endDate)) 
     pres_df_num <- pres_df_num|>
       select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
+    #  select(elOrder, contains("level"), elementId, fact, decimals, endDate, value1) |>
       mutate(fact = as.numeric(fact) * 10^as.numeric(decimals)) # should also keep dimension1 for brkb income statements
-    pres_df_num <- pres_df_num |> tidyr::pivot_wider( 
+    pres_df_num_w <- pres_df_num |> tidyr::pivot_wider( 
                             names_from = endDate, 
-                            values_from = fact)
-    pres_df_num  <-  pres_df_num |> arrange(elOrder)
-
+                            values_from = fact,
+                            values_fill = NA)
+    # pres_df_num_w <- pres_df_num |> tidyr::pivot_wider( 
+    #               names_from = c(endDate, value1),
+    #               values_from = fact,
+    #               names_vary = "fastest")
+    
+    
+    pres_df_num_w  <-  pres_df_num_w |> arrange(elOrder)
+    
+    # replace NULL values with missing values (apparently does happen in certain situations)
+    # this is only the case if lists() re created by pivot_wider, which can happen if facts are not unique (or too much context has been lost)
+    # Function to replace NULL with NA
+    replace_nulls <- function(x) {
+      x[sapply(x, is.null)] <- NA
+      return(x)
+    }
+    # Apply the function to each column
+    pres_df_num_w[] <- lapply(pres_df_num_w, replace_nulls)
+    
+    
     # next step would be to add labels, make calculations, join concepts with labels
     # apparently it is possible to have two facts with the same elementId and contextId, but with different factIds otherwise completely identical
     # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
@@ -461,7 +500,12 @@ xbrl_statement <- function(xbrl.vars){
   #this looks promising but would need to be debugged - it is breaking
   # library(finstr)
   # statements <- finstr::xbrl_get_statements(xbrl.vars)
-
+  browser()
+  # debugonce(xbrl_get_statements)
+  st <- xbrl_get_statements(xbrl.vars)
+  browser()
+  
+  
   role_ids <- xbrl.vars$role$roleId[xbrl.vars$role$type == "Statement"]
     
   role_id <- "http://www.berkshirehathaway.com/20240630/taxonomy/role/Role_StatementConsolidatedBalanceSheets"
@@ -478,11 +522,6 @@ xbrl_statement <- function(xbrl.vars){
   }
   browser()
 }   
-  
-  
-  
-  # this actually works!
-  # library(tidyr)
   
 
 

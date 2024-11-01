@@ -83,11 +83,11 @@ xbrl_get_statement_ids <- function(xbrl_vars) {
   if( !all( c("role", "calculation") %in% names(xbrl_vars)))
     stop(substitute(xbrl_vars), " does not include role and calculation data.")
   
-  xbrl_vars$role %>%
-    dplyr::filter_(~type == "Statement") %>%
-    dplyr::semi_join(xbrl_vars$calculation, by = "roleId") %>%
-    dplyr::select_(~roleId) %>%
-    simplify2array() %>%
+  xbrl_vars$role |>
+    dplyr::filter(type == "Statement") |>
+    dplyr::semi_join(xbrl_vars$calculation, by = "roleId") |>
+    dplyr::select(roleId) |>
+    simplify2array() |>
     unname()
 }
 
@@ -104,34 +104,34 @@ xbrl_get_data <- function(elements, xbrl_vars,
                           basic_contexts = TRUE) {
   # gets data in normal format (with variables as columns and 
   # time periods as rows)
-  
+
   if( !("data.frame" %in% class(elements)) )
     elements <- data.frame(elementId = elements, stringsAsFactors = FALSE)
   
   res <-
-    elements %>%
+    elements |>
     dplyr::inner_join(xbrl_vars$fact, by = "elementId")
 
   min_level <- min(res$level, na.rm = TRUE)
 
   min_dec <- min(as.numeric(res$decimals), na.rm = TRUE)
   
-  context_filter <- res %>% dplyr::filter_(~level == min_level) %>%
-    getElement("contextId") %>% unique
+  context_filter <- res |> dplyr::filter(level == min_level) |>
+    getElement("contextId") |> unique()
 
-  decimals_filter <- res %>% dplyr::filter_(~level == min_level) %>%
-    getElement("decimals") %>%  unique
+  decimals_filter <- res |> dplyr::filter(level == min_level) |>
+    getElement("decimals") |>  unique()
   
   res <-
-    res %>%
-    dplyr::filter_(~contextId %in% context_filter) %>% 
-    dplyr::filter_(~decimals %in% decimals_filter) %>% 
-    dplyr::mutate_(fact = ~as.numeric(fact), decimals = ~min_dec )%>%
-    dplyr::inner_join(xbrl_vars$context, by = "contextId") %>%
-    dplyr::select_(~contextId ,  ~startDate ,  ~endDate ,  ~elementId ,  ~fact ,  ~decimals) %>%
+    res |>
+    dplyr::filter(contextId %in% context_filter) |>
+    dplyr::filter(decimals %in% decimals_filter) |> 
+    dplyr::mutate(fact = as.numeric(fact), decimals = min_dec ) |>
+    dplyr::inner_join(xbrl_vars$context, by = "contextId") |>
+    dplyr::select(contextId, startDate, endDate, elementId, fact, decimals) |>
     #dplyr::add_rownames() %>% 
-    tidyr::spread_("elementId", "fact") %>%
-    dplyr::arrange_(~endDate)
+    tidyr::spread_("elementId", "fact") |>
+    dplyr::arrange(endDate)
   
 
   vec1 <- elements$elementId[! elements$elementId %in% names(res)]
@@ -155,12 +155,12 @@ xbrl_get_data <- function(elements, xbrl_vars,
   # only basic_contexts
   if(basic_contexts) {
     context_filter2 <-
-      res %>% 
-      dplyr::group_by_(~startDate, ~endDate) %>% 
-      dplyr::summarise_(min_context = ~contextId[nchar(contextId) == min(nchar(contextId))]) %>% 
+      res |>
+      dplyr::group_by(startDate, endDate) |>
+      dplyr::summarise(min_context = contextId[nchar(contextId) == min(nchar(contextId))]) |>
       getElement("min_context")
     
-    res <- res %>% dplyr::filter_(~contextId %in% context_filter2)
+    res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
   
   if(complete_first)
@@ -188,14 +188,15 @@ xbrl_get_elements <- function(xbrl_vars, relations) {
     data.frame( 
       elementId = with(relations, unique(c(fromElementId, toElementId))),
       stringsAsFactors = FALSE
-      )  %>%
-    dplyr::left_join(xbrl_vars$element, by = c("elementId")) %>%
+      )  |>
+    dplyr::left_join(xbrl_vars$element, by = c("elementId")) |>
     #dplyr::filter_(~type == "xbrli:monetaryItemType") %>% 
-    dplyr::left_join(relations, by = c("elementId" = "toElementId")) %>%
-    dplyr::left_join(xbrl_vars$label, by = c("elementId")) %>%
-    dplyr::filter_(~labelRole == "http://www.xbrl.org/2003/role/label") %>% 
-    dplyr::transmute_(~elementId, parentId = ~fromElementId, ~order, ~balance, ~labelString)
+    dplyr::left_join(relations, by = c("elementId" = "toElementId")) |>
+    dplyr::left_join(xbrl_vars$label, by = c("elementId")) |>
+    dplyr::filter(labelRole == "http://www.xbrl.org/2003/role/label") |> # why filter with this labelRole?
+    dplyr::transmute(elementId, parentId = fromElementId, order, balance, labelString)
   
+  # debugonce(get_elements_h)
   elements <- get_elements_h(elements)
   
   class(elements) <- c("elements", "data.frame")
@@ -205,7 +206,7 @@ xbrl_get_elements <- function(xbrl_vars, relations) {
 
 #' Get elements hierarchy 
 #' 
-#' @details Add level and hierarchycal id columns
+#' @details Add level and hierarchical id columns
 #' @param elements data.frame with elementId, parentId and order columns 
 #' @export
 #' @keywords internal
@@ -213,16 +214,20 @@ get_elements_h <- function(elements) {
   # reorder and classify elements by hierarchy
   # adds level, hierarchical id and terminal column  
   level <- 1
-  df1 <- elements %>%
-    dplyr::filter_(~is.na(parentId)) %>%
-    dplyr::mutate(id = "") %>% 
-    dplyr::arrange_(~dplyr::desc(balance))
-
+  df1 <- elements |> dplyr::filter(is.na(parentId)) # What if all observations do have a parent ID?
+  df1 <- df1 |> dplyr::mutate(id = "") 
+  df1 <- df1 |> dplyr::arrange(dplyr::desc(balance))
+  
+  if (nrow(df1) == 0) browser()
+  # all observations have a parent ID
+  # this means there is no element on level 1
+  # code breaks
+  
   while({
     level_str <- 
       unname(unlist(lapply(split(df1$id, df1$id), function(x) {
         sprintf("%s%02d", x, 1:length(x))
-      })))
+      }))) # creates new id like "0103" - I think this is later used to order rows in statement in correct hierarchy
     
     elements[elements$elementId %in% df1$elementId, "level"] <- level
     to_update <- elements[elements$elementId %in% df1$elementId, "elementId"]
@@ -231,21 +236,21 @@ get_elements_h <- function(elements) {
       order(match(elements$elementId, df1$elementId))[1:length(level_str)], 
       "id"] <- level_str
     
-    df1 <- elements %>%
-      dplyr::filter_(~parentId %in% df1$elementId) %>%
-      dplyr::arrange_(~order) %>%
-      dplyr::select_(~elementId, ~parentId) %>%
-      dplyr::left_join(elements, by=c("parentId"="elementId")) %>%
-      dplyr::arrange_(~id)
+    df1 <- elements |>
+      dplyr::filter(parentId %in% df1$elementId) |>
+      dplyr::arrange(order) |>
+      dplyr::select(elementId, parentId) |>
+      dplyr::left_join(elements, by=c("parentId"="elementId")) |>
+      dplyr::arrange(id)
     nrow(df1) > 0})
   {
     level <- level + 1
   }
 
   elements <- 
-    elements %>%  
-    dplyr::arrange_(~id) %>% 
-    dplyr::mutate_( terminal = ~ !elementId %in% parentId )
+    elements |>
+    dplyr::arrange(id) |>
+    dplyr::mutate( terminal = !elementId %in% parentId )
 }
 
 #' Get relations from XBRL calculation link base
@@ -257,11 +262,11 @@ get_elements_h <- function(elements) {
 xbrl_get_relations <- function(xbrl_vars, role_id, lbase = "calculation") {
   
   res <- 
-    xbrl_vars[[lbase]] %>%
-    dplyr::filter_(~roleId == role_id) %>%
-    dplyr::select_(~fromElementId, ~toElementId, ~order) %>% 
-    dplyr::mutate(order = as.numeric(order)) %>%
-    dplyr::arrange(order) %>% 
+    xbrl_vars[[lbase]] |>
+    dplyr::filter(roleId == role_id) |>
+    dplyr::select(fromElementId, toElementId, order) |>
+    dplyr::mutate(order = as.numeric(order)) |>
+    dplyr::arrange(order) |>
     unique() 
 
   # check the hierarchy: children should not be duplicated
@@ -329,6 +334,7 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
     
   names(relations) <- basename(role_ids)
   elements_list <- lapply(relations, function(x){
+    # debugonce(xbrl_get_elements)
     xbrl_get_elements(xbrl_vars, x)
   })
   names(elements_list) <- basename(role_ids)
