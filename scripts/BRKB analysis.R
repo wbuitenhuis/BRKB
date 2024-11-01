@@ -129,8 +129,5 @@ data_dictionary <- NasdaqDataLink.datatable('SHARADAR/INDICATORS')
 source("./scripts/functions/10Q_10K_functions.R")
 edgar_timeseries_10q()
 
-source("./scripts/finstr/finstr.R")
-load("./data/xbrl_data_aapl2013.rda")
-debugonce(xbrl_get_statements)
-st <- xbrl_get_statements(xbrl_data_aapl2013)
+
 

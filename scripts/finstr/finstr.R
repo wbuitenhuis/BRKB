@@ -82,7 +82,7 @@ xbrl_get_statement_ids <- function(xbrl_vars) {
   
   if( !all( c("role", "calculation") %in% names(xbrl_vars)))
     stop(substitute(xbrl_vars), " does not include role and calculation data.")
-  
+  browser()
   xbrl_vars$role |>
     dplyr::filter(type == "Statement") |>
     dplyr::semi_join(xbrl_vars$calculation, by = "roleId") |>
@@ -90,6 +90,19 @@ xbrl_get_statement_ids <- function(xbrl_vars) {
     simplify2array() |>
     unname()
 }
+xbrl_get_statement_ids_WB <- function(xbrl_vars) {
+  # finds roleIds for statements
+  # example:
+  #   xbrl_get_statements(xbrl_vars)
+  
+  if( !all( c("role", "calculation") %in% names(xbrl_vars)))
+    stop(substitute(xbrl_vars), " does not include role and calculation data.")
+  xbrl_vars$role |>
+    dplyr::filter(type == "Statement") |>
+    dplyr::semi_join(xbrl_vars$calculation, by = "roleId") |>
+    dplyr::select(roleId, description, definition)
+}
+
 
 #' Get a statement from data (data for specified elements)
 #' @param elements elements object
@@ -130,11 +143,12 @@ xbrl_get_data <- function(elements, xbrl_vars,
     dplyr::inner_join(xbrl_vars$context, by = "contextId") |>
     dplyr::select(contextId, startDate, endDate, elementId, fact, decimals) |>
     #dplyr::add_rownames() %>% 
-    tidyr::spread_("elementId", "fact") |>
+    tidyr::pivot_wider(names_from = "elementId", values_from = "fact") |>
     dplyr::arrange(endDate)
   
 
-  vec1 <- elements$elementId[! elements$elementId %in% names(res)]
+  vec1 <- elements$elementId[! elements$elementId %in% names(res)] 
+  # what if this is empty? all elementIds are in names(res)
   df1 <- stats::setNames( data.frame(rbind(rep(0, length(vec1)))), vec1)
   res <- cbind(res, df1)
   
@@ -157,13 +171,14 @@ xbrl_get_data <- function(elements, xbrl_vars,
     context_filter2 <-
       res |>
       dplyr::group_by(startDate, endDate) |>
-      dplyr::summarise(min_context = contextId[nchar(contextId) == min(nchar(contextId))]) |>
+      # dplyr::summarise(min_context = contextId[nchar(contextId) == min(nchar(contextId))]) |>
+      dplyr::reframe(min_context = contextId[nchar(contextId) == min(nchar(contextId))]) |>
       getElement("min_context")
     
     res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
   
-  if(complete_first)
+  if(complete_first) # this creates problem in BRKB balance sheet if TRUE
     res <- res[!is.na(res[, value_cols[1]]), ]
   
   if(any(duplicated(res$endDate))) {
@@ -316,9 +331,13 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
     stop("Input does not include all data needed from XBRL.")
   }
   
+  
   # get all statement types from XBRL
   if(missing(role_ids)) {
-    role_ids <- xbrl_get_statement_ids(xbrl_vars)
+    role_ids <- xbrl_get_statement_ids_WB(xbrl_vars)
+    statement_names <- role_ids # can use statement names to present output later on in better way
+    role_ids <- role_ids$roleId
+    # role_ids <- xbrl_get_statement_ids(xbrl_vars)
   }
   
   #get calculation link base relations
@@ -334,7 +353,6 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
     
   names(relations) <- basename(role_ids)
   elements_list <- lapply(relations, function(x){
-    # debugonce(xbrl_get_elements)
     xbrl_get_elements(xbrl_vars, x)
   })
   names(elements_list) <- basename(role_ids)
@@ -347,6 +365,7 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
       lapply(
         role_ids,
         function(role_id) {
+          # browser()
           stat_name <- basename(role_id)
           links <- relations[[stat_name]]
           elements <- elements_list[[stat_name]]
