@@ -408,6 +408,10 @@ xbrl_statement <- function(xbrl.vars){
     context <- xbrl.vars$context |> select(contextId, value1)
     ind <- match(st[[i]]$contextId, context$contextId)
     st_w_context[[i]] <- cbind(context[ind, "value1"], st[[i]])
+    names(st_w_context[[i]])[1] <- "entity"
+    browser()
+    st_w_context[[i]] <- st_w_context[[i]] |> dplyr::filter(entity %in% c(NA, "brka:InsuranceAndOtherMember", 
+                                     "brka:RailroadUtilitiesAndEnergyMember"))
   }
   browser()
 

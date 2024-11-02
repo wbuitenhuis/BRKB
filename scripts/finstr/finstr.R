@@ -336,6 +336,7 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
   if(missing(role_ids)) {
     role_ids <- xbrl_get_statement_ids_WB(xbrl_vars)
     statement_names <- role_ids # can use statement names to present output later on in better way
+    # can add as attributes to final output
     role_ids <- role_ids$roleId
     # role_ids <- xbrl_get_statement_ids(xbrl_vars)
   }
@@ -365,7 +366,7 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
       lapply(
         role_ids,
         function(role_id) {
-          # browser()
+          browser()
           stat_name <- basename(role_id)
           links <- relations[[stat_name]]
           elements <- elements_list[[stat_name]]
