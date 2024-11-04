@@ -228,9 +228,7 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   # parse xml files as well as all schemas and joins them
   # uses XBRL package for R
   
-  # xml_filename <- file_and_path(xml_file)
   xml_filename <- basename(xml_file)
-  #cache_dir <- paste0(xml_filename$path, cache_dir)
   cache_dir <- paste0(dirname(xml_file), "/", cache_dir)
   # create cache dir if needed
   if (isFALSE(dir.exists(cache_dir))){
@@ -239,19 +237,14 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   
   xbrl_doc <- XBRL::xbrlParse(xml_file)
   schema_name <- XBRL::xbrlGetSchemaName(xbrl_doc)
-  #xbrl_xsd <- XBRL::xbrlParse(paste0(xml_filename$path, schema_name)) # xsd file (xbrl schema)
   xbrl_xsd <- XBRL::xbrlParse(paste0(dirname(xml_file), "/", schema_name)) # xsd file (xbrl schema)
   importNames<- XBRL::xbrlGetImportNames(xbrl_xsd)
   xbrl_xsd_l <- NULL
   
-  # more_importnames <- NULL
   i <- 1
   n <- length(importNames)
   while (i <= n){
-  # for (i in 1:length(importNames)){
-    # xsd_name <- file_and_path(importNames[i])
     xsd_name <- basename(importNames[i])
-    #if (isFALSE(file.exists(paste0(cache_dir, xsd_name$file)))){
     if (isFALSE(file.exists(paste0(cache_dir, xsd_name)))){
       if (stringr::str_detect(importNames[i], ".sec.gov/")){
         # dealing with a SEC download
@@ -261,13 +254,10 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
         xsd_file <- download_file(importNames[i])
       }
       xsd_file <- xsd_file |> httr::content("text")
-      #write(xsd_file, paste0(cache_dir, xsd_name$file))
       write(xsd_file, paste0(cache_dir, xsd_name))
     }
-    #xbrl_xsd_l[[i]] <- XBRL::xbrlParse(paste0(cache_dir, xsd_name$file))
     xbrl_xsd_l[[i]] <- XBRL::xbrlParse(paste0(cache_dir, xsd_name))
     more_importnames <- XBRL::xbrlGetImportNames(xbrl_xsd_l[[i]])
-    # more_importnames <- c(more_importnames, impn)
     more_importnames <- more_importnames[!(more_importnames %in% importNames)]
     keep <- stringr::str_sub(more_importnames,1,8) == "https://" | stringr::str_sub(more_importnames,1,7) == "http://"
     more_importnames <- more_importnames[keep]
@@ -302,7 +292,6 @@ parse_xbrl <- function(xml_file, cache_dir = "xbrl_cache/"){
   }
   # note that context element is missing for all observations in presentation
   
-
   contexts <- XBRL::xbrlProcessContexts(xbrl_doc) # same result with do_all
   units <- XBRL::xbrlProcessUnits(xbrl_doc) # same result as with do_all
   facts_r <- XBRL::xbrlProcessFacts(xbrl_doc) # same result as with do_all
@@ -351,12 +340,12 @@ remove_duplicated_facts <- function(facts){
       element <- facts$elementId[ind[i]]
       context <- facts$contextId[ind[i]]
       dupe_fact <- facts |> filter(elementId == element & contextId == context)
-      if (nrow(dupe_fact) == 1) next
+      if (nrow(dupe_fact) == 1) next #should not happen honestly
       test_different_units <- sum(dupe_fact$unitId[1] == dupe_fact$unitId) != nrow(dupe_fact)
       if (test_different_units){
         not_usd <- dupe_fact$unitId != "U_USD"
         if (sum(not_usd) > 0){
-          print(paste(sum(not_usd), "facts are not in USD. Removing those"))
+          print(paste(sum(not_usd), "facts are not in USD. Removing those."))
           remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
           dispose <- dupe_fact$factId[not_usd]
           remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
@@ -372,8 +361,7 @@ remove_duplicated_facts <- function(facts){
         dupe_fact$decimals <- as.numeric(dupe_fact$decimals)
         dispose <- (dupe_fact$decimals < max(dupe_fact$decimals))
         dispose <- dupe_fact$factId[dispose]
-        print(paste("Remove", length(dispose), "objects that have alternative 
-                      facts with higher precision."))
+        print(paste("Remove", length(dispose), "objects that have alternative facts with higher precision."))
         remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
         next
       }
@@ -381,9 +369,8 @@ remove_duplicated_facts <- function(facts){
       if (test_different_values){
         browser()
         # in this case you have conflicting facts. Need to look into
-        remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
+        # remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
       }
-      browser()
     }
     keep <- setdiff(1:nrow(facts), remove_rows)
     facts <- facts[keep,]
@@ -398,10 +385,23 @@ xbrl_statement <- function(xbrl.vars){
 
   xbrl.vars$fact <-   remove_duplicated_facts(xbrl.vars$fact)
   
-  #this looks promising but would need to be debugged - it is breaking
-  # debugonce(xbrl_get_statements)
-  st <- xbrl_get_statements(xbrl.vars, complete_first = FALSE)
+
+  statement_ids <- xbrl_get_statement_ids_WB(xbrl.vars) 
   browser()
+  is <- xbrl_get_statements_WB(xbrl_vars = xbrl.vars, role_ids = statement_ids$roleId[2],
+                            complete_first = FALSE)
+  is <- is[[1]]
+  gs <- is |> dplyr::group_by(startDate, endDate) |> summarise(n = dplyr::n())
+  med_frew <- median(gs$n)
+  keep <- gs$n > median(gs$n)
+ 
+  browser()
+  # is <- statement(xbrl.vars, statement_ids$roleId[2])
+
+  st <- xbrl_get_statements(xbrl.vars, complete_first = FALSE)
+  
+  statement_ids <- xbrl_get_statement_ids_WB(xbrl.vars) 
+  
   
   st_w_context <- NULL
   for (i in 1:length(st)){
@@ -415,9 +415,7 @@ xbrl_statement <- function(xbrl.vars){
   }
   browser()
 
-  # stringr::str should shorten names
   check <- lapply(st, check_statement)
-  
   
   excel_filename <- "statements.xlsx"
   excel_filename <- paste0("./output/", excel_filename)
@@ -426,13 +424,11 @@ xbrl_statement <- function(xbrl.vars){
   for (i in 1:length(st)){
     openxlsx::addWorksheet(xl.workbook, sheetName = paste0("st_",i), zoom = 130)
     openxlsx::writeData(xl.workbook, sheet = paste0("st_",i), x= st[[i]], startRow = 1, startCol = 1)
-    #openxlsx::freezePane(xl.workbook, sheet = "crypto_8949", firstRow = TRUE, firstCol = FALSE)
   }
   openxlsx::saveWorkbook(xl.workbook, file = excel_filename, overwrite = TRUE)
-  # openxlsx2::saveWorkbook(xl.workbook, file = filename, overwrite = TRUE)
   options("openxlsx.numFmt" = NULL)  
 
-  browser()
+
   
   role_ids <- xbrl.vars$role$roleId[xbrl.vars$role$type == "Statement"]
     
@@ -453,124 +449,160 @@ xbrl_statement <- function(xbrl.vars){
   
 
 
+
+statement <- function(xbrl.vars, role_id){
+  # based on: https://github.com/bergant/XBRLFiles
+  library(dplyr)
+  # browser()
+  # prepare presentation linkbase :
+  # filter by role_id and convert order to numeric
+  pres <-
+    xbrl.vars$presentation |>
+    filter(roleId %in% role_id) |>
+    mutate(order = as.numeric(order))
+
+  # start with top element of the presentation tree
+  pres_df <-
+    pres |>
+    anti_join(pres, by = c("fromElementId" = "toElementId"))
+  pres_df <- pres_df |>
+    select(elementId = fromElementId)
+
+  # breadth-first search
+  # add subsequent elements to presentation tree
+  while({
+    df1 <- pres_df |> na.omit()
+    df1 <- df1 |> left_join(pres, by = c("elementId" = "fromElementId"))
+    df1 <- df1 |> arrange(elementId, order)
+    df1 <- df1 |> select(elementId, child = toElementId);
+    nrow(df1) > 0
+  })
+  {
+    # add each new level to data frame
+    prev_pres_df <- pres_df
+    pres_df <- pres_df |> left_join(df1, by = "elementId")
+    names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
+    # if (sum(is.na(pres_df$elementId)) > 0) browser()
+  }
+
+  # add last level as special column (the hierarchy may not be uniformly deep)
+  # WB: this ensures there is an elementId for all rows
+  browser()
+  pres_df["elementId"] <-
+    apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
+  pres_df["elOrder"] <- 1:nrow(pres_df)
+  
+  
+  # min_level <- min(res$level, na.rm = TRUE)
+  # min_dec <- min(as.numeric(res$decimals), na.rm = TRUE)
+  # context_filter <- res |> dplyr::filter(level == min_level) |>
+  #    getElement("contextId") |> unique()
+  #  
+  # decimals_filter <- res |> dplyr::filter(level == min_level) |>
+  #    getElement("decimals") |>  unique()
+  # 
+  # join concepts with context, facts
+  pres_df_num <-
+    pres_df |>
+    inner_join(xbrl.vars$fact, by = "elementId")
+  pres_df_num <- pres_df_num |>
+    inner_join(xbrl.vars$context, by = "contextId")
+  #pres_df_num <- pres_df_num |> # this is an issue for BRKB if you want segment reporting
+  #  filter(is.na(dimension1)) # keeps only rows where there is no dimension1 value
+  pres_df_num <- pres_df_num |>
+    filter(!is.na(endDate))
+  pres_df_num <- pres_df_num|>
+    select(elOrder, contains("level"), elementId, fact, decimals, startDate, endDate, value1) |>
+    #  select(elOrder, contains("level"), elementId, fact, decimals, endDate, value1) |>
+    mutate(fact = as.numeric(fact) * 10^as.numeric(decimals)) # should also keep dimension1 for brkb income statements
+  pres_df_num_w <- pres_df_num |> tidyr::pivot_wider(
+    names_from = endDate,
+    values_from = fact,
+    values_fill = NA)
+  
+  # min_level <- min(res$level, na.rm = TRUE)
+  # 
+  # min_dec <- min(as.numeric(res$decimals), na.rm = TRUE)
+  # 
+  # context_filter <- res |> dplyr::filter(level == min_level) |>
+  #   getElement("contextId") |> unique()
+  # 
+  # decimals_filter <- res |> dplyr::filter(level == min_level) |>
+  #   getElement("decimals") |>  unique()
+  # res <-
+  #   elements |>
+  #   dplyr::inner_join(xbrl_vars$fact, by = "elementId")
+  # 
+  # res <-
+  #   res |>
+  #   dplyr::filter(contextId %in% context_filter) |>
+  #   dplyr::filter(decimals %in% decimals_filter) |> 
+  #   dplyr::mutate(fact = as.numeric(fact), decimals = min_dec ) |>
+  #   dplyr::inner_join(xbrl_vars$context, by = "contextId") |>
+  #   dplyr::select(contextId, startDate, endDate, elementId, fact, decimals) |>
+  #   tidyr::pivot_wider(names_from = "elementId", values_from = "fact") |>
+  #   dplyr::arrange(endDate)
+  
+  # pres_df_num_w <- pres_df_num |> tidyr::pivot_wider(
+  #               names_from = c(endDate, value1),
+  #               values_from = fact,
+  #               names_vary = "fastest")
+
+
+  pres_df_num_w  <-  pres_df_num_w |> arrange(elOrder)
+
+  # replace NULL values with missing values (apparently does happen in certain situations)
+  # this is only the case if lists() re created by pivot_wider, which can happen if facts are not unique (or too much context has been lost)
+  # Function to replace NULL with NA
+  replace_nulls <- function(x) {
+    x[sapply(x, is.null)] <- NA
+    return(x)
+  }
+  # Apply the function to each column
+  pres_df_num_w[] <- lapply(pres_df_num_w, replace_nulls)
+
+
+  # next step would be to add labels, make calculations, join concepts with labels
+  # apparently it is possible to have two facts with the same elementId and contextId, but with different factIds otherwise completely identical
+  # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
+
+  # labels for our financial statement (role_id) in "en-US" language:
+  x_labels <-
+    xbrl.vars$presentation |>
+    filter(roleId == role_id) |>
+    select(elementId = toElementId, labelRole = preferredLabel) |>
+    semi_join(pres_df_num, by = "elementId") |>
+    left_join(xbrl.vars$label, by = c("elementId", "labelRole")) |>
+    filter(lang == "en-US") |>
+    select(elementId, labelString)
+
+  # calculated elements in this statement component
+  x_calc <- xbrl.vars$calculation |>
+    filter(roleId == role_id) |>
+    select(elementId = fromElementId, calcRoleId = arcrole) |>
+    unique()
+
+  # find relevant dates
+  # 1.) most recent date
+  # 2.) date with least missing observations
+  dates <- colnames(pres_df_num)[stringr::str_detect(colnames(pres_df_num), "[:digit:]{4}")]
+  most_recent_dt <- max(as.Date(dates)) |> as.character()
+  dates <- dates[dates != as.character(most_recent_dt)]
+  nr_missing_obs <- pres_df_num |> select(all_of(dates)) |> is.na() |> apply(2, sum)
+  least_missing_date <- dates[nr_missing_obs == min(nr_missing_obs)]
+
+  statement_pretty <- pres_df_num |>
+    left_join(x_labels, by = "elementId") |>
+    left_join(x_calc, by = "elementId") |> select("labelString",
+                                                  matches(most_recent_dt),
+                                                  matches(least_missing_date))
+
+  return(statement_pretty)
+}
+
+
+
 ################### can ignore everything below ###############
-
-# statement <- function(xbrl.vars, role_id){
-#   # based on: https://github.com/bergant/XBRLFiles
-#   library(dplyr)
-#   
-#   # prepare presentation linkbase : 
-#   # filter by role_id and convert order to numeric
-#   pres <- 
-#     xbrl.vars$presentation |>
-#     filter(roleId %in% role_id) |>
-#     mutate(order = as.numeric(order))
-#   
-#   # start with top element of the presentation tree
-#   pres_df <- 
-#     pres |>
-#     anti_join(pres, by = c("fromElementId" = "toElementId")) 
-#   pres_df <- pres_df |>
-#     select(elementId = fromElementId)
-#   
-#   # breadth-first search
-#   # add subsequent elements to presentation tree
-#   while({
-#     df1 <- pres_df |> na.omit() 
-#     df1 <- df1 |> left_join(pres, by = c("elementId" = "fromElementId")) 
-#     df1 <- df1 |> arrange(elementId, order) 
-#     df1 <- df1 |> select(elementId, child = toElementId);
-#     nrow(df1) > 0
-#   }) 
-#   {
-#     # add each new level to data frame
-#     prev_pres_df <- pres_df
-#     pres_df <- pres_df |> left_join(df1, by = "elementId")
-#     names(pres_df) <-  c(sprintf("level%d", 1:(ncol(pres_df)-1)), "elementId")
-#     # if (sum(is.na(pres_df$elementId)) > 0) browser()
-#   }
-#   
-#   # add last level as special column (the hierarchy may not be uniformly deep)
-#   # WB: this ensures there is an elementId for all rows
-#   pres_df["elementId"] <- 
-#     apply( t(pres_df), 2, function(x){tail( x[!is.na(x)], 1)})
-#   pres_df["elOrder"] <- 1:nrow(pres_df)
-#   
-#   # join concepts with context, facts
-#   pres_df_num <-
-#     pres_df |>
-#     left_join(xbrl.vars$fact, by = "elementId") 
-#   pres_df_num <- pres_df_num |>
-#     left_join(xbrl.vars$context, by = "contextId") 
-#   #pres_df_num <- pres_df_num |> # this is an issue for BRKB if you want segment reporting
-#   #  filter(is.na(dimension1)) # keeps only rows where there is no dimension1 value 
-#   pres_df_num <- pres_df_num |>
-#     filter(!is.na(endDate)) 
-#   pres_df_num <- pres_df_num|>
-#     select(elOrder, contains("level"), elementId, fact, decimals, endDate) |>
-#     #  select(elOrder, contains("level"), elementId, fact, decimals, endDate, value1) |>
-#     mutate(fact = as.numeric(fact) * 10^as.numeric(decimals)) # should also keep dimension1 for brkb income statements
-#   pres_df_num_w <- pres_df_num |> tidyr::pivot_wider( 
-#     names_from = endDate, 
-#     values_from = fact,
-#     values_fill = NA)
-#   # pres_df_num_w <- pres_df_num |> tidyr::pivot_wider( 
-#   #               names_from = c(endDate, value1),
-#   #               values_from = fact,
-#   #               names_vary = "fastest")
-#   
-#   
-#   pres_df_num_w  <-  pres_df_num_w |> arrange(elOrder)
-#   
-#   # replace NULL values with missing values (apparently does happen in certain situations)
-#   # this is only the case if lists() re created by pivot_wider, which can happen if facts are not unique (or too much context has been lost)
-#   # Function to replace NULL with NA
-#   replace_nulls <- function(x) {
-#     x[sapply(x, is.null)] <- NA
-#     return(x)
-#   }
-#   # Apply the function to each column
-#   pres_df_num_w[] <- lapply(pres_df_num_w, replace_nulls)
-#   
-#   
-#   # next step would be to add labels, make calculations, join concepts with labels
-#   # apparently it is possible to have two facts with the same elementId and contextId, but with different factIds otherwise completely identical
-#   # https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2015-12-09/xbrl-duplicates-WGN-2015-12-09.html
-#   
-#   # labels for our financial statement (role_id) in "en-US" language:
-#   x_labels <-
-#     xbrl.vars$presentation |>
-#     filter(roleId == role_id) |>
-#     select(elementId = toElementId, labelRole = preferredLabel) |>
-#     semi_join(pres_df_num, by = "elementId") |>
-#     left_join(xbrl.vars$label, by = c("elementId", "labelRole")) |>
-#     filter(lang == "en-US") |>
-#     select(elementId, labelString)
-#   
-#   # calculated elements in this statement component
-#   x_calc <- xbrl.vars$calculation |>
-#     filter(roleId == role_id) |>
-#     select(elementId = fromElementId, calcRoleId = arcrole) |>
-#     unique()
-#   
-#   # find relevant dates
-#   # 1.) most recent date
-#   # 2.) date with least missing observations
-#   dates <- colnames(pres_df_num)[stringr::str_detect(colnames(pres_df_num), "[:digit:]{4}")]
-#   most_recent_dt <- max(as.Date(dates)) |> as.character()
-#   dates <- dates[dates != as.character(most_recent_dt)]
-#   nr_missing_obs <- pres_df_num |> select(all_of(dates)) |> is.na() |> apply(2, sum)
-#   least_missing_date <- dates[nr_missing_obs == min(nr_missing_obs)]
-#   
-#   statement_pretty <- pres_df_num |>
-#     left_join(x_labels, by = "elementId") |>
-#     left_join(x_calc, by = "elementId") |> select("labelString", 
-#                                                   matches(most_recent_dt), 
-#                                                   matches(least_missing_date))
-#   
-#   return(statement_pretty)
-# }
-
 
 # oldwork <-function(){
 # # this contains useful code, but started different approach
