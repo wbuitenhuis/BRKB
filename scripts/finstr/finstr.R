@@ -209,7 +209,7 @@ xbrl_get_data <- function(elements, xbrl_vars,
 #' @export
 xbrl_get_data_WB <- function(elements, xbrl_vars, 
                           complete_only = FALSE, complete_first = TRUE, 
-                          basic_contexts = TRUE) {
+                          basic_contexts = TRUE, nr_periods = 1) {
   # gets data in normal format (with variables as columns and 
   # time periods as rows)
   
@@ -222,9 +222,7 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   
   # this filter does not work for Berkshire income statement
   min_level <- min(res$level, na.rm = TRUE)
-  
   min_dec <- min(as.numeric(res$decimals), na.rm = TRUE)
-  
   # context_filter <- res |> dplyr::filter(level == min_level) |>
   #   getElement("contextId") |> unique()
   context_filter <- res |>
@@ -242,11 +240,28 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
     dplyr::mutate(fact = as.numeric(fact), decimals = min_dec )
   res <- res |>
     dplyr::inner_join(xbrl_vars$context, by = "contextId")
+  
+  # work to filter non relevant reporting periods
+  gs <- res |> dplyr::group_by(startDate, endDate) |> summarise(n = dplyr::n())
+  gs$dates <- paste(gs$startDate, gs$endDate)
+  res$dates <- paste(res$startDate, res$endDate)
+  ind <- match(res$dates, gs$dates)
+  res$n <- gs$n[ind]
+  res$date <- as.Date(res$endDate)
+  res$periodLength <- res$date - as.Date(res$startDate) |> as.numeric()
+  res <- res |> dplyr::arrange(dplyr::desc(n), dplyr::desc(endDate), periodLength)
+  res$filter_by <- paste(res$n, res$endDate, res$PeriodLength)
+  nr_periods <- min(nr_periods, length(unique(res$filter_by)))
+  dates_filter <- unique(res$filter_by)[1:nr_periods]
+  res <- res |> dplyr::filter(filter_by %in% dates_filter)
+
   res <- res |>
     dplyr::select(contextId, startDate, endDate, elementId, fact, decimals, value1)
   res <- res |> tidyr::pivot_wider(names_from = "elementId", values_from = "fact") 
   res <- res |> dplyr::arrange(endDate)
-  member_filter <- !stringr::str_detect(res$value1, "us-gaap") | is.na(res$value1)
+  member_filter <- !(stringr::str_detect(res$value1, "us-gaap:") | 
+                       stringr::str_detect(res$value1, "srt:")) | 
+                        is.na(res$value1)
   res <- res[member_filter, ]
   
   vec1 <- elements$elementId[! elements$elementId %in% names(res)] 
@@ -256,8 +271,7 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   
   value_cols <- finstr_cols(res, inverse = TRUE)
   
-  #res <- res[, c(names(res)[1:4], elements$elementId)]
-  browser()
+  res <- res |> dplyr::mutate(dplyr::across(value_cols, as.numeric))
   res <- res[, c(finstr_cols(res), elements$elementId)]
   
   # Handling strange NAs - if some columns are total NA:
@@ -277,7 +291,6 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
       # dplyr::summarise(min_context = contextId[nchar(contextId) == min(nchar(contextId))]) |>
       dplyr::reframe(min_context = contextId[nchar(contextId) == min(nchar(contextId))]) |>
       getElement("min_context")
-    
     res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
   

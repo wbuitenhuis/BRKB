@@ -391,10 +391,9 @@ xbrl_statement <- function(xbrl.vars){
   is <- xbrl_get_statements_WB(xbrl_vars = xbrl.vars, role_ids = statement_ids$roleId[2],
                             complete_first = FALSE)
   is <- is[[1]]
-  gs <- is |> dplyr::group_by(startDate, endDate) |> summarise(n = dplyr::n())
-  med_frew <- median(gs$n)
-  keep <- gs$n > median(gs$n)
- 
+  bs <-xbrl_get_statements_WB(xbrl_vars = xbrl.vars, role_ids = statement_ids$roleId[1],
+                              complete_first = FALSE)
+  bs <- bs[[1]]
   browser()
   # is <- statement(xbrl.vars, statement_ids$roleId[2])
 
