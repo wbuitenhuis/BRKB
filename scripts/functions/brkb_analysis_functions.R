@@ -9,64 +9,87 @@ brkb_timeseries_10q <- function(){
   source("./scripts/functions/10Q_10K_functions.R")
   cik <- "0001067983"
   type <- "10-Q"
-  # filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
+  filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
 
-  filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-  #xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
-  xml_filename <- "xbrl/brka-20240630_htm.xml"
-  #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
-  csv_filename <- "xbrl/brka-20240630_htm.csv"
+  # filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
+  # filing_urls <- "/Archives/edgar/data/1067983/000095017023058993/0000950170-23-058993-index.htm"
+  # filing_urls <- "/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm"
+  filing_urls <- c("/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm",
+                   "/Archives/edgar/data/1067983/000156459022028282/0001564590-22-028282-index.htm")
   
-  # parse xbrl files
-  r_xbrl <- parse_xbrl(xml_filename)
-  r_xbrl$fact <- remove_duplicated_facts(r_xbrl$fact)
-  
-  statement_ids <- xbrl_get_statement_ids_WB(r_xbrl)
-  members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember")
-  
-  is <- xbrl_get_statements_WB(xbrl_vars = r_xbrl, role_ids = statement_ids$roleId[2],
-                               complete_first = FALSE)
-  is <- is[[1]]
+  # want:
+  # income statement for all business units separately for different periods
+  # aggregate balance sheet for different periods
 
-  members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember")
-  is <- st |> dplyr::filter(value1 %in% members)
-  desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
-  members <- members[!is.na(members)]
-  is_bu <- st |> dplyr::filter(value1 %in% members)
+  for (i in 1:min(40, length(filing_urls))){
+    # browser()
+    if (sum(is.na(filing_urls) > 0)) browser()
+    if (nchar(filing_urls[i]) < 5 | is.na(filing_urls[i])) browser()
+    xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[i]),
+                                     verbose = TRUE)
+    print(paste("i = ", i, "XML file:", xml_filenames[1]))
+    
+    xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
+    xbrl$fact <- remove_duplicated_facts(xbrl$fact)
+    st <- xbrl_get_statements_WB(xbrl_vars = xbrl, complete_first = FALSE, 
+                                 end_of_quarter = TRUE,
+                                 basic_contexts = FALSE)
+    # browser()
+    if (i == 1){
+      st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
+      st_all <- lapply(st, clean_BRKB_statement)
+    } else {
+      st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
+      st_all_i <- lapply(st, clean_BRKB_statement)
+      if (isFALSE("statement" %in% class(st[[1]]))) browser()
+      # tenporary code
+      debugonce(merge.statement)
+      temp <- merge.statement(st_parent[[1]], st_parent_i[[1]])
+      st_parent <- merge.statements(st_parent, st_parent_i)
+      st_all <- merge.statements(st_all, st_all_i)
+    }
+    save(st_all, st_parent, file = "./data/BRKB_statements.RData")
+  }
+  print("Done")
+}
+
+clean_BRKB_statement <- function(st, parent_only = FALSE){
   # if missing for all BU, but not parent, should stay missing. 
   # need to track here which observations. Which variable meet these requirements?
-  
-  # st_bu[is.na(st_bu)] <- 0
-    # is <- is |> dplyr::filter(value1 %in% members)
-  bs <- xbrl_get_statements_WB(xbrl_vars = r_xbrl, role_ids = statement_ids$roleId[1],
-                              complete_first = FALSE)
-  bs <- bs[[1]]
-  browser()
-  debugonce(clean_BRKB_statement_parent)
-  bs <- clean_BRKB_statement_parent(bs)
-  is <- clean_BRKB_statement_parent(is)
-  
-
-  browser()
-  # 
-  
-}
-
-clean_BRKB_statement_parent <- function(st){
+  # browser()
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember")
   st <- st |> dplyr::filter(value1 %in% members)
-  desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
-  members <- members[!is.na(members)]
-  st_bu <- st |> dplyr::filter(value1 %in% members)
-  st_bu[is.na(st_bu)] <- 0
-  st_bu_total <- st_bu |>
-    dplyr::summarise(dplyr::across(dplyr::where(is.numeric), \(x) sum(x, na.rm = TRUE)))
-  st_parent <- st |> dplyr::filter(is.na(value1))
-  ind <- which(is.na(st_parent))
-  ind <- ind[ind > length(desc_vars)]
-  st_parent[1,ind] <- st_bu_total[1, ind - length(desc_vars)]
-  return(st_parent)
+
+  if (nrow(st) > 1){
+    desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
+    value_cols <- colnames(st)
+    value_cols <- value_cols[!(value_cols %in% desc_vars)]
+    st_pa <- st |> dplyr::filter(is.na(value1))
+    members <- members[!is.na(members)]
+    st_bu <- st |> dplyr::filter(value1 %in% members)
+    empty_cols_pa <- sapply(
+      st_pa, function(x) length(stats::na.omit(x))==0 
+    )
+    empty_cols_pa[desc_vars] <- FALSE
+    not_empty_cols_pa <- !empty_cols_pa |> as.vector()
+    empty_cols_bu <- sapply(
+      st_bu, function(x) length(stats::na.omit(x))==0 
+    )
+    st_bu[is.na(st_bu)] <- 0
+    st_bu[,empty_cols_bu & not_empty_cols_pa] <- NA
+    st_bu_total <- st_bu |>
+        dplyr::summarise(dplyr::across(value_cols, \(x) sum(x, na.rm = TRUE)))
+    ind <- which(empty_cols_pa) - length(desc_vars)
+    st_pa[, empty_cols_pa] <- st_bu_total[, ind]
+    if (parent_only){
+      st <- st_pa  
+    } else {
+      st <- rbind(st_bu, st_parent = st_pa)
+    }
+  }
+  return(st)
 }
+
 
 
 brkb_bs_statement <- function(xbrl.vars){

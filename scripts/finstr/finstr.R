@@ -199,6 +199,18 @@ xbrl_get_data <- function(elements, xbrl_vars,
   return(res)
 }
 
+quarters <- function(dates){
+  
+  range <- c(min(dates), max(dates))
+  years <- as.integer(stringr::str_sub(range, 1, 4))
+  years[2] <- years[2] + 1
+  quarters <- seq.Date(from = as.Date(paste(years[1], "-01-01", sep = "")), 
+                           to = as.Date(paste(years[2], "-12-31", sep = "")), 
+                           by = "quarter")
+  quarters <- quarters - lubridate::days(1)
+  return(quarters)
+}
+
 #' Get a statement from data (data for specified elements)
 #' @param elements elements object
 #' @param xbrl_vars XBRL data
@@ -209,7 +221,7 @@ xbrl_get_data <- function(elements, xbrl_vars,
 #' @export
 xbrl_get_data_WB <- function(elements, xbrl_vars, 
                           complete_only = FALSE, complete_first = TRUE, 
-                          basic_contexts = TRUE, nr_periods = 1) {
+                          basic_contexts = TRUE, nr_periods = 1, end_of_quarter = TRUE) {
   # gets data in normal format (with variables as columns and 
   # time periods as rows)
   
@@ -248,13 +260,20 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   ind <- match(res$dates, gs$dates)
   res$n <- gs$n[ind]
   res$date <- as.Date(res$endDate)
-  res$periodLength <- res$date - as.Date(res$startDate) |> as.numeric()
-  res <- res |> dplyr::arrange(dplyr::desc(n), dplyr::desc(endDate), periodLength)
-  res$filter_by <- paste(res$n, res$endDate, res$PeriodLength)
+  if (end_of_quarter){
+    filter_quarters <- quarters(res$date)
+  } else {
+    filter_quarters <- unique(res$dates)
+  }
+  res$periodLength <- as.numeric(res$date - as.Date(res$startDate))
+  res$periodLength <- sprintf("%03d", as.numeric(res$periodLength)) # add leading zeros
+  res <- res |> dplyr::arrange(dplyr::desc(endDate), periodLength, dplyr::desc(n))
+  #res$filter_by <- paste(res$endDate, res$PeriodLength, res$n)
+  res <- res |> dplyr::filter(date %in% filter_quarters)
+  res$filter_by <- paste(res$endDate, res$periodLength)
   nr_periods <- min(nr_periods, length(unique(res$filter_by)))
   dates_filter <- unique(res$filter_by)[1:nr_periods]
   res <- res |> dplyr::filter(filter_by %in% dates_filter)
-
   res <- res |>
     dplyr::select(contextId, startDate, endDate, elementId, fact, decimals, value1)
   res <- res |> tidyr::pivot_wider(names_from = "elementId", values_from = "fact") 
@@ -285,6 +304,8 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
     res <- res[stats::complete.cases( res[ value_cols ] ), ]
   # only basic_contexts
   if(basic_contexts) {
+    # This only select context where the context ID has the length of the smallest context
+    # It gives issues for 2022-06-30 statement of BRKB if this is TRUE
     context_filter2 <-
       res |>
       dplyr::group_by(startDate, endDate) |>
@@ -346,8 +367,8 @@ get_elements_h <- function(elements) {
   # adds level, hierarchical id and terminal column  
   level <- 1
   df1 <- elements |> dplyr::filter(is.na(parentId)) # What if all observations do have a parent ID?
-  df1 <- df1 |> dplyr::mutate(id = "") 
-  df1 <- df1 |> dplyr::arrange(dplyr::desc(balance))
+  df1 <- df1 |> dplyr::mutate(id = "") # add id variable
+  df1 <- df1 |> dplyr::arrange(dplyr::desc(balance)) # sort by decreasing balance value
   
   if (nrow(df1) == 0) browser()
   # all observations have a parent ID
@@ -368,8 +389,9 @@ get_elements_h <- function(elements) {
       "id"] <- level_str
     
     df1 <- elements |>
-      dplyr::filter(parentId %in% df1$elementId) |>
-      dplyr::arrange(order) |>
+      dplyr::filter(parentId %in% df1$elementId) 
+      dplyr::arrange(order)
+    df1 <- df1 |>
       dplyr::select(elementId, parentId) |>
       dplyr::left_join(elements, by=c("parentId"="elementId")) |>
       dplyr::arrange(id)
@@ -382,6 +404,7 @@ get_elements_h <- function(elements) {
     elements |>
     dplyr::arrange(id) |>
     dplyr::mutate( terminal = !elementId %in% parentId )
+  browser()
 }
 
 #' Get relations from XBRL calculation link base
@@ -440,7 +463,7 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
                                 complete_first = TRUE, 
                                 role_ids = NULL,
                                 lbase = "calculation",
-                                basic_contexts = TRUE )  {
+                                basic_contexts = TRUE)  {
 
   # xbrl is parsed xbrl
   if( !all( c("role", "calculation", "fact", "context", "element") %in% names(xbrl_vars))) {
@@ -514,7 +537,8 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
                                 complete_first = TRUE, 
                                 role_ids = NULL,
                                 lbase = "calculation",
-                                basic_contexts = TRUE )  {
+                                basic_contexts = TRUE,
+                                end_of_quarter = FALSE)  {
   
   # xbrl is parsed xbrl
   if( !all( c("role", "calculation", "fact", "context", "element") %in% names(xbrl_vars))) {
@@ -556,14 +580,13 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
       lapply(
         role_ids,
         function(role_id) {
-          # browser()
           stat_name <- basename(role_id)
           links <- relations[[stat_name]]
           elements <- elements_list[[stat_name]]
           #label <- xbrl_get_labels(xbrl_vars, elements)
           res <- xbrl_get_data_WB(elements, xbrl_vars, 
                                complete_only, complete_first,
-                               basic_contexts)
+                               basic_contexts, end_of_quarter)
           # delete taxonomy prefix
           names(res) <- gsub(taxonomy_prefix, "", names(res))          
           links$fromElementId <- gsub(taxonomy_prefix, "", links$fromElementId)          
@@ -743,7 +766,8 @@ merge.elements <- function(x, y, ...) {
   z <- NULL
   col_names <- names(x)[!names(x) %in% c("level", "id", "terminal")]
   z <- rbind(x[,col_names], y[,col_names])
-  z <- z[!duplicated(z[,c("elementId", "parentId")]), ]  
+  z <- z[!duplicated(z[,c("elementId", "parentId")]), ]
+  browser()
   z <- get_elements_h(z)
   z <- as.elements(z)
   return(z)
@@ -769,16 +793,16 @@ merge.elements <- function(x, y, ...) {
 #' @param ... further arguments passed to or from other methods
 #' @return statement object
 #' @export
-merge.statement <- function(x, y, replace_na = TRUE, ...) {
+merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) {
 
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
-    stop("Not statement objects")
+    stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
   }
   
   # merge elements
   el_x <- get_elements(x)
   el_y <- get_elements(y)
-  el_z <- merge(el_x, el_y)
+  el_z <- merge(el_x, el_y) # how come this function calls merge.elements?
   
   if(!any(names(x)[-(1:4)] %in% names(y)[-(1:4)])  ) {
     #if same period and different statments
@@ -795,8 +819,10 @@ merge.statement <- function(x, y, replace_na = TRUE, ...) {
     if(replace_na) {
       z[,5:ncol(z)][is.na(z[,5:ncol(z)])] <- 0
     }
-    # remove duplicated rows (based on periods)
-    z <- z[!duplicated(z[c("endDate")], fromLast = TRUE), ]
+    if (remove_dupes){
+      # remove duplicated rows (based on periods)
+      z <- z[!duplicated(z[c("endDate")], fromLast = TRUE), ]
+    }
     # order rows by endDate
     z <- z[order(z$endDate), ]
     # order columns based on original taxonomy
@@ -824,13 +850,13 @@ merge.statement <- function(x, y, replace_na = TRUE, ...) {
 #' @export
 merge.statements <- function(x, y, replace_na = TRUE, ...) {
 
-  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
-    stop("Not statements objects")
-  }
-  
+  # if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
+  #   stop("Not statements objects")
+  # }
+  browser()
   z <-
     lapply(names(x), function(statement){
-      merge(x[[statement]], y[[statement]], replace_na = replace_na, ...)
+      merge.statement(x[[statement]], y[[statement]], replace_na = replace_na, ...)
     })
   names(z) <- names(y)
   class(z) <- "statements"

@@ -125,7 +125,11 @@ data_dictionary <- NasdaqDataLink.datatable('SHARADAR/INDICATORS')
 # Q - quarter
 # T - Trailing 12 months
 
+source("./scripts/functions/10Q_10K_functions.R")
+edgar_timeseries_10q()
+
 source("./scripts/functions/brkb_analysis_functions.R")
+#debugonce(brkb_timeseries_10q)
 brkb_timeseries_10q()
 
 
