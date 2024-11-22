@@ -132,5 +132,7 @@ source("./scripts/functions/brkb_analysis_functions.R")
 #debugonce(brkb_timeseries_10q)
 brkb_timeseries_10q()
 
+load(file = "./data/BRKB_statements.RData")
+statements2excel(st_all, file = "statement1.xlsx")
 
 

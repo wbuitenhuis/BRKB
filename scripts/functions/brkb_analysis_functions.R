@@ -14,15 +14,15 @@ brkb_timeseries_10q <- function(){
   # filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
   # filing_urls <- "/Archives/edgar/data/1067983/000095017023058993/0000950170-23-058993-index.htm"
   # filing_urls <- "/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm"
-  filing_urls <- c("/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm",
-                   "/Archives/edgar/data/1067983/000156459022028282/0001564590-22-028282-index.htm")
-  
+  # filing_urls <- c("/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm",
+  #                 "/Archives/edgar/data/1067983/000156459022028282/0001564590-22-028282-index.htm")
+  # filing_urls <- c("/Archives/edgar/data/1067983/000156459021055032/0001564590-21-055032-index.htm", 
+  #                "/Archives/edgar/data/1067983/000156459020052144/0001564590-20-052144-index.htm")
   # want:
   # income statement for all business units separately for different periods
   # aggregate balance sheet for different periods
 
   for (i in 1:min(40, length(filing_urls))){
-    # browser()
     if (sum(is.na(filing_urls) > 0)) browser()
     if (nchar(filing_urls[i]) < 5 | is.na(filing_urls[i])) browser()
     xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[i]),
@@ -30,21 +30,50 @@ brkb_timeseries_10q <- function(){
     print(paste("i = ", i, "XML file:", xml_filenames[1]))
     
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
-    xbrl$fact <- remove_duplicated_facts(xbrl$fact)
-    st <- xbrl_get_statements_WB(xbrl_vars = xbrl, complete_first = FALSE, 
-                                 end_of_quarter = TRUE,
-                                 basic_contexts = FALSE)
     # browser()
+    xbrl$fact <- remove_duplicated_facts(xbrl$fact)
+    st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
+                                 lbase = "calculation",
+                                 complete_first = FALSE, 
+                                 end_of_quarter = TRUE,
+                                 basic_contexts = FALSE,
+                                 nonzero_only = TRUE,
+                                 aggregate_over_period_and_entity = TRUE)
     if (i == 1){
       st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
       st_all <- lapply(st, clean_BRKB_statement)
+      n_parent <- length(st_parent)
+      n_all <- length(st_all)
+      # statements2excel(st_all, file = "statement1.xlsx")
+      #statements2excel(st_pres, file = "statement_pres.xlsx")
+    # browser()
     } else {
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
+      statements2excel(st_parent_i, file = "statement2.xlsx")
       st_all_i <- lapply(st, clean_BRKB_statement)
+      if (length(st_parent_i) > n_parent){
+        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent_i)){
+          st_parent_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
+        } else {
+          statements2excel(st_parent_i)
+          browser()
+        }
+      }
+      if (length(st_all_i) > n_all){
+        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all_i)){
+          st_all_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
+        } else {
+          statements2excel(st_all_i)
+          browser()
+        }
+      }
+      if (length(st_parent_i) < n_parent){
+        browser()
+        statements2excel(st_parent_i)
+      }
+      
       if (isFALSE("statement" %in% class(st[[1]]))) browser()
-      # tenporary code
-      debugonce(merge.statement)
-      temp <- merge.statement(st_parent[[1]], st_parent_i[[1]])
+      # if (i == 13) browser()
       st_parent <- merge.statements(st_parent, st_parent_i)
       st_all <- merge.statements(st_all, st_all_i)
     }
@@ -90,6 +119,30 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
   return(st)
 }
 
+elements2excel <- function(el, file = "el.xlsx"){
+  excel_filename <- file
+  excel_filename <- paste0("./output/", excel_filename)
+  options("openxlsx.numFmt" = "#,##0")
+  xl.workbook <- openxlsx::createWorkbook()
+  
+  openxlsx::addWorksheet(xl.workbook, sheetName = paste0("el"), zoom = 130)
+  openxlsx::writeData(xl.workbook, sheet = paste0("el"), x= el, startRow = 1, startCol = 1)
+  openxlsx::saveWorkbook(xl.workbook, file = excel_filename, overwrite = TRUE)
+  options("openxlsx.numFmt" = NULL)  
+}
+
+statements2excel <- function(st, file = "statements.xlsx"){
+  excel_filename <- file
+  excel_filename <- paste0("./output/", excel_filename)
+  options("openxlsx.numFmt" = "#,##0")
+  xl.workbook <- openxlsx::createWorkbook()
+  for (i in 1:length(st)){
+    openxlsx::addWorksheet(xl.workbook, sheetName = paste0("st_",i), zoom = 130)
+    openxlsx::writeData(xl.workbook, sheet = paste0("st_",i), x= st[[i]], startRow = 1, startCol = 1)
+  }
+  openxlsx::saveWorkbook(xl.workbook, file = excel_filename, overwrite = TRUE)
+  options("openxlsx.numFmt" = NULL)  
+}
 
 
 brkb_bs_statement <- function(xbrl.vars){

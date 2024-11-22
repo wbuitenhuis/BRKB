@@ -339,7 +339,7 @@ remove_duplicated_facts <- function(facts, verbose = FALSE){
           if (verbose){
             print(paste(sum(not_usd), "facts are not in USD. Removing those."))
           }
-          remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
+          # remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
           dispose <- dupe_fact$factId[not_usd]
           remove_rows <- c(remove_rows, which(facts$factId %in% dispose))
         } else {

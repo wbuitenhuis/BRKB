@@ -221,9 +221,12 @@ quarters <- function(dates){
 #' @export
 xbrl_get_data_WB <- function(elements, xbrl_vars, 
                           complete_only = FALSE, complete_first = TRUE, 
-                          basic_contexts = TRUE, nr_periods = 1, end_of_quarter = TRUE) {
+                          basic_contexts = TRUE, nr_periods = 1, end_of_quarter = TRUE,
+                          nonzero_only = FALSE,
+                          aggregate_over_period_and_entity = TRUE) {
   # gets data in normal format (with variables as columns and 
   # time periods as rows)
+  remove_all_zeros_nas <- function(df) { df[rowSums(df != 0 & !is.na(df)) > 0, ] }
   
   if( !("data.frame" %in% class(elements)) )
     elements <- data.frame(elementId = elements, stringsAsFactors = FALSE)
@@ -302,6 +305,11 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   # keep only complete rows
   if(complete_only)
     res <- res[stats::complete.cases( res[ value_cols ] ), ]
+  
+  # remove rows with only zero's or NA's
+  if(nonzero_only){
+    res <- remove_all_zeros_nas(res)
+  }
   # only basic_contexts
   if(basic_contexts) {
     # This only select context where the context ID has the length of the smallest context
@@ -314,7 +322,21 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
       getElement("min_context")
     res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
-  
+  # browser()
+  if (aggregate_over_period_and_entity){
+    # aggregate over same startDate, endDate and value1
+    res <- res |> dplyr::group_by(startDate, endDate, value1) |> 
+      dplyr::summarize(dplyr::across(value_cols, \(x) sum(x, na.rm = FALSE)))
+    # current issue is that this sets all missing values equal to zero if na.rm = TRUE
+    # however here we make them all NA if one is missing in aggregation.
+    # that is also not necessarily true
+    desc_obs <- res |> dplyr::select(!value_cols)
+    res <- desc_obs |> dplyr::left_join(res, 
+                                           by = c("startDate", "endDate", "value1"))
+    res <- res |> dplyr::group_by(startDate, endDate, value1) |>
+      dplyr::slice(1) 
+    #|> dplyr:ungroup()
+  }
   if(complete_first) # this creates problem in BRKB balance sheet if TRUE
     res <- res[!is.na(res[, value_cols[1]]), ]
   
@@ -364,12 +386,15 @@ xbrl_get_elements <- function(xbrl_vars, relations) {
 #' @keywords internal
 get_elements_h <- function(elements) {
   # reorder and classify elements by hierarchy
-  # adds level, hierarchical id and terminal column  
+  # adds level, hierarchical id and terminal column
+  # browser()
+  # if (elements$elementId |> unique() |> length() < nrow(elements)) browser()
+  # temp0 <- elements
   level <- 1
   df1 <- elements |> dplyr::filter(is.na(parentId)) # What if all observations do have a parent ID?
   df1 <- df1 |> dplyr::mutate(id = "") # add id variable
   df1 <- df1 |> dplyr::arrange(dplyr::desc(balance)) # sort by decreasing balance value
-  
+
   if (nrow(df1) == 0) browser()
   # all observations have a parent ID
   # this means there is no element on level 1
@@ -380,21 +405,60 @@ get_elements_h <- function(elements) {
       unname(unlist(lapply(split(df1$id, df1$id), function(x) {
         sprintf("%s%02d", x, 1:length(x))
       }))) # creates new id like "0103" - I think this is later used to order rows in statement in correct hierarchy
-    
+    if (is.null(level_str)) browser()
     elements[elements$elementId %in% df1$elementId, "level"] <- level
     to_update <- elements[elements$elementId %in% df1$elementId, "elementId"]
-    elements[ 
-      #order(match(elements$elementId, to_update))[1:length(level_str)], 
-      order(match(elements$elementId, df1$elementId))[1:length(level_str)], 
-      "id"] <- level_str
+    # if (nrow(df1) > nrow(elements)) browser()
     
+      # find position of for elements$elementID in df1$elementId, sort them in 
+      # ascending order. Any missing values will be put last. It takes only
+      # the number of elements equal to length of level_str or number of rows in df1, 
+      # so you have
+      # one match for each level_str value. Issues may arise if the number of non missing
+      # values in the match function exceeds the length of level_str. Now we
+      # have only missing values to work with.
+      # This can happen if the length of level_str is longer then the number of 
+      # rows in elements. However, how can this happen? Seems wrong?
+    elements[ 
+        #order(match(elements$elementId, to_update))[1:length(level_str)], 
+        order(match(elements$elementId, df1$elementId))[1:length(level_str)], 
+        "id"] <- level_str
+    
+    # temp1 <- df1
+    # take all elements whose parent ID is an element of df1
+    # The new df1 are all children of the old df1
     df1 <- elements |>
-      dplyr::filter(parentId %in% df1$elementId) 
+      dplyr::filter(parentId %in% df1$elementId) |>
       dplyr::arrange(order)
+
+    # take elementId from df1 (the new child), match with parentId from elements. 
+    # - get parent info of the child.
+    # if multiple elements share the same parentID in elements each will create a new
+    # row in the joint. If parentId is not in df1, it will show missing values 
+    # for the variables that have been joined.
+    # temp2 <- df1
     df1 <- df1 |>
       dplyr::select(elementId, parentId) |>
-      dplyr::left_join(elements, by=c("parentId"="elementId")) |>
+      dplyr::left_join(elements, by=c("parentId"="elementId")) |> 
       dplyr::arrange(id)
+    #if (nrow(df1) > nrow(elements)) {
+    #  browser() # have an issue. should not happen.
+    # Can not have more children than we have elements. 
+    # check if order is missing - is that an issue?
+    # if id is missing - is that an issue?
+    # ind <- match(temp2$elementId, elements$parentId)
+      # df1 <- df1 |> dplyr::filter(!( == B & is.na(C))) 
+      # df1 <- df1 |> group_by(elementId, parentId) |>
+      #   filter(!(duplicated(elementId) & duplicated(parentId) & is.na(parentId.y))) |> 
+      #   ungroup()
+    # }
+    # if (sum(is.na(df1$id)) == nrow(df1) & nrow(df1) > 0) browser()
+    # temp3 <- temp2 |>
+    #   dplyr::select(elementId, parentId) |>
+    #   dplyr::left_join(elements, by=c("parentId"="elementId"),
+    #                    relationship = "many-to-many") |>
+    #   dplyr::arrange(id)
+    # if (duplicated(df1$elementId) |> sum() > 0) browser()
     nrow(df1) > 0})
   {
     level <- level + 1
@@ -404,7 +468,7 @@ get_elements_h <- function(elements) {
     elements |>
     dplyr::arrange(id) |>
     dplyr::mutate( terminal = !elementId %in% parentId )
-  browser()
+  #browser()
 }
 
 #' Get relations from XBRL calculation link base
@@ -440,7 +504,7 @@ xbrl_get_relations <- function(xbrl_vars, role_id, lbase = "calculation") {
 #' @param complete_only Get only context with complete facts
 #' @param complete_first Get only context with non-NA first fact
 #' @param role_ids specify statements (all statements are returned by default)
-#' @param lbase link base ("calculation" is default)
+#' @param lbase link base ("calculation" is default, can also do "presentation" or "definition")
 #' @param basic_contexts when duplicated periods, only basic contexts are returned
 #' @return A statements object
 #' @examples
@@ -461,6 +525,7 @@ xbrl_get_relations <- function(xbrl_vars, role_id, lbase = "calculation") {
 xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_", 
                                 complete_only = FALSE,
                                 complete_first = TRUE, 
+                                nonzero_only = FALSE,
                                 role_ids = NULL,
                                 lbase = "calculation",
                                 basic_contexts = TRUE)  {
@@ -535,16 +600,17 @@ xbrl_get_statements <- function(xbrl_vars, rm_prefix = "us-gaap_",
 xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_", 
                                 complete_only = FALSE,
                                 complete_first = TRUE, 
+                                nonzero_only = FALSE,
                                 role_ids = NULL,
                                 lbase = "calculation",
                                 basic_contexts = TRUE,
-                                end_of_quarter = FALSE)  {
+                                end_of_quarter = FALSE,
+                                aggregate_over_period_and_entity = TRUE)  {
   
   # xbrl is parsed xbrl
   if( !all( c("role", "calculation", "fact", "context", "element") %in% names(xbrl_vars))) {
     stop("Input does not include all data needed from XBRL.")
   }
-  
   
   # get all statement types from XBRL
   if(missing(role_ids)) {
@@ -552,7 +618,6 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
     statement_names <- role_ids # can use statement names to present output later on in better way
     # can add as attributes to final output
     role_ids <- role_ids$roleId
-    # role_ids <- xbrl_get_statement_ids(xbrl_vars)
   }
   
   #get calculation link base relations
@@ -584,6 +649,7 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
           links <- relations[[stat_name]]
           elements <- elements_list[[stat_name]]
           #label <- xbrl_get_labels(xbrl_vars, elements)
+          #browser()
           res <- xbrl_get_data_WB(elements, xbrl_vars, 
                                complete_only, complete_first,
                                basic_contexts, end_of_quarter)
@@ -627,7 +693,8 @@ get_elements <- function(x, parent_id = NULL, all = TRUE) {
   }
 
   elements <- attr(x, "elements")
-  
+  # if not explicitly given a parentId, this statement is FALSE, even though
+  # parentId is set to NULL by default.
   if(!missing(parent_id)) {
     children <- elements[["elementId"]] == parent_id
     if(!any(children)) {
@@ -639,6 +706,7 @@ get_elements <- function(x, parent_id = NULL, all = TRUE) {
       as.elements()
 
   }
+  # if all = FALSE, only take terminal elements and set their level to 1.
   if(!all) {
     elements <- elements %>%
       dplyr::filter_(~terminal) %>%
@@ -764,14 +832,46 @@ check_statement <- function(statement, element_id = NULL) {
 #' @export
 merge.elements <- function(x, y, ...) {
   z <- NULL
+  #browser()
   col_names <- names(x)[!names(x) %in% c("level", "id", "terminal")]
   z <- rbind(x[,col_names], y[,col_names])
   z <- z[!duplicated(z[,c("elementId", "parentId")]), ]
-  browser()
   z <- get_elements_h(z)
   z <- as.elements(z)
   return(z)
 }
+
+# Check if elements of two financial statements have the same parentIds
+# If they are different give preference to statement 1
+# created by Wouter
+check_parents_of_elements <- function(x, y){
+  # Load the dplyr package
+  
+  # Perform the join and filter based on the conditions
+  joined <- x |> dplyr::select(elementId, parentId) |>
+    dplyr::inner_join(y |> dplyr::select(elementId, parentId), by = "elementId") 
+  joined[is.na(joined)] <- "@NA@"
+  to_change <- joined |>
+    dplyr::filter(parentId.x != parentId.y)
+  if (nrow(to_change) > 0){
+    print("Found elements with conflicitng parents")
+    print(to_change)
+    # now create a fix
+    y[is.na(y)] <- "@NA@"
+    y_updated <- y |> dplyr::left_join(to_change, by = dplyr::join_by(elementId)) |> 
+      dplyr::mutate(parentId = ifelse(!is.na(parentId.x), parentId.x, parentId)) |> 
+      dplyr::select(-parentId.x, -parentId.y) # Optionally, remove the D column if not needed
+    y_updated[y_updated == "@NA@"] <- NA
+    y_updated$order <- as.numeric(y_updated$order)
+    y_updated$level <- as.numeric(y_updated$level)
+    # need elementId, parentId and order as input for element_h()
+    # order follows from get_relations()
+    return(y_updated)
+  }
+  
+  
+}
+
 
 #' Merge two financial statements
 #' 
@@ -798,17 +898,44 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
     stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
   }
-  
+
   # merge elements
+  # without any additional arguments, this just takes the attribute elements from x
   el_x <- get_elements(x)
   el_y <- get_elements(y)
-  el_z <- merge(el_x, el_y) # how come this function calls merge.elements?
+  #el_z <- merge(el_x, el_y) # how come this function calls merge.elements?
+  el_z <- try(merge.elements(el_x, el_y)) #WB change - i think this will do the same think, but make it more transparent
   
+  z_error <- "try-error" %in% class(el_z)
+  if (z_error){
+    # issue is that some element Ids have different parent Ids
+    # this causes different levels, orders and ids.
+    # To do:
+    # find different assignment of parentIds to elementIds
+    # make them consistent between the two statements
+    # recalculate levels, orders and ids for updated statement.
+    # need get_relations for order of elements, need element_h for levels (hierachy)
+    # I believe this is done with element_h() - element hierarchy 
+    # - which is called by merge.elements
+    # try merging elements again.
+    # can get order from attribute $relations of statement
+    y_updated <- check_parents_of_elements(el_x, el_y)
+    el_z <- try(merge.elements(el_x, y_updated), silent = TRUE)
+    if ("try-error" %in% class(el_z)){
+      browser()
+      # issue not fixed
+    } else{
+      print("Fixed merging error.")
+    }
+    # browser()
+    # elements2excel(el_x, file = "el_x.xlsx")
+    # elements2excel(el_y, file = "el_y.xlsx")
+  } 
   if(!any(names(x)[-(1:4)] %in% names(y)[-(1:4)])  ) {
-    #if same period and different statments
+    #if same period and different statements
     col_pos <- which(names(y) %in% c("contextId", "startDate", "decimals"))
     z <- 
-      x %>%
+      x |>
       dplyr::left_join(y[,-col_pos], by = "endDate")
     
   } else {
@@ -826,12 +953,18 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     # order rows by endDate
     z <- z[order(z$endDate), ]
     # order columns based on original taxonomy
-    z <- z[,c(names(z)[1:4], el_z[["elementId"]])]
+    if (!z_error){
+      z <- z[,c(names(z)[1:4], el_z[["elementId"]])] 
+    }
   }
   
   # add attributes
   class(z) <- class(x)
-  attr(z, "elements") <- el_z
+  if (z_error){
+    attr(z, "elements") <- el_x
+  } else {
+    attr(z, "elements") <- el_z
+  }
   attr(z, "role_id") <- attr(x, "role_id")
   return(z)  
 }
@@ -853,7 +986,18 @@ merge.statements <- function(x, y, replace_na = TRUE, ...) {
   # if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
   #   stop("Not statements objects")
   # }
-  browser()
+  # browser()
+  if (length(x) != length(y)){
+    print("Different number of statements to merge")
+    browser()
+    # differe
+  }
+  different_names <- names(y) != names(x)
+  if (sum(different_names) > 0){
+    print(paste("Statements have different names, will change them to most recent one"))
+    names(y)[different_names] <- names(x)[different_names]
+    # browser()
+  }
   z <-
     lapply(names(x), function(statement){
       merge.statement(x[[statement]], y[[statement]], replace_na = replace_na, ...)
