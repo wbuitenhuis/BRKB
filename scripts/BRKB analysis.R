@@ -134,5 +134,6 @@ brkb_timeseries_10q()
 
 load(file = "./data/BRKB_statements.RData")
 statements2excel(st_all, file = "statement1.xlsx")
+statements2excel(st_parent, file = "statement.xlsx")
 
 

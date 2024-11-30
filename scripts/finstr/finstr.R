@@ -211,6 +211,10 @@ quarters <- function(dates){
   return(quarters)
 }
 
+last_char_is_num <- function(string){
+  last_char <- stringr::str_sub(string, start = -1) |>
+    stringr::str_detect("[:digit]")
+}
 #' Get a statement from data (data for specified elements)
 #' @param elements elements object
 #' @param xbrl_vars XBRL data
@@ -322,7 +326,9 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
       getElement("min_context")
     res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
-  # browser()
+  browser()
+  # check if elementId has digit at last element
+  last_char_is_num(res$elementId) |> sum()
   if (aggregate_over_period_and_entity){
     # aggregate over same startDate, endDate and value1
     res <- res |> dplyr::group_by(startDate, endDate, value1) |> 
