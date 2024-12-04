@@ -212,9 +212,16 @@ quarters <- function(dates){
 }
 
 last_char_is_num <- function(string){
-  last_char <- stringr::str_sub(string, start = -1) |>
-    stringr::str_detect("[:digit]")
+  # checks is last char of string is a digit and 2nd to last is not a digit
+  last_char <- stringr::str_sub(string, start = -1)
+  second_to_last <- stringr::str_sub(string, start = -2, end = -2)
+  is_last_digit <- last_char |>
+    stringr::str_detect("[:digit:]")
+  is_2nd_to_last_digit <-  second_to_last  |>
+    stringr::str_detect("[:digit:]")
+  return(is_last_digit & !is_2nd_to_last_digit)
 }
+
 #' Get a statement from data (data for specified elements)
 #' @param elements elements object
 #' @param xbrl_vars XBRL data
@@ -296,8 +303,8 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   res <- cbind(res, df1)
   
   value_cols <- finstr_cols(res, inverse = TRUE)
-  
-  res <- res |> dplyr::mutate(dplyr::across(value_cols, as.numeric))
+  res <- res |> dplyr::mutate(dplyr::across(dplyr::any_of(value_cols), as.numeric))
+
   res <- res[, c(finstr_cols(res), elements$elementId)]
   
   # Handling strange NAs - if some columns are total NA:
@@ -326,23 +333,28 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
       getElement("min_context")
     res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
-  browser()
+  
   # check if elementId has digit at last element
-  last_char_is_num(res$elementId) |> sum()
-  if (aggregate_over_period_and_entity){
-    # aggregate over same startDate, endDate and value1
-    res <- res |> dplyr::group_by(startDate, endDate, value1) |> 
-      dplyr::summarize(dplyr::across(value_cols, \(x) sum(x, na.rm = FALSE)))
-    # current issue is that this sets all missing values equal to zero if na.rm = TRUE
-    # however here we make them all NA if one is missing in aggregation.
-    # that is also not necessarily true
-    desc_obs <- res |> dplyr::select(!value_cols)
-    res <- desc_obs |> dplyr::left_join(res, 
-                                           by = c("startDate", "endDate", "value1"))
-    res <- res |> dplyr::group_by(startDate, endDate, value1) |>
-      dplyr::slice(1) 
-    #|> dplyr:ungroup()
-  }
+  # if (last_char_is_num(value_cols) |> sum() > 0) browser()
+  # temp <- ncol(res) #  debuging test
+  # temp2 <- names(res)
+  # if (aggregate_over_period_and_entity){
+  #   # aggregate over same startDate, endDate and value1
+  #   res <- res |> dplyr::group_by(startDate, endDate, value1) |> 
+  #     dplyr::summarize(dplyr::across(value_cols, \(x) sum(x, na.rm = FALSE)))
+  #   # current issue is that this sets all missing values equal to zero if na.rm = TRUE
+  #   # however here we make them all NA if one is missing in aggregation.
+  #   # that is also not necessarily true
+  #   # in addition this aggregation removes variables context id and ...
+  #   desc_obs <- res |> dplyr::select(!value_cols)
+  #   res <- desc_obs |> dplyr::left_join(res, 
+  #                                          by = c("startDate", "endDate", "value1"))
+  #   res <- res |> dplyr::group_by(startDate, endDate, value1) |>
+  #     dplyr::slice(1) 
+  #   #|> dplyr:ungroup()
+  # }
+  # if (ncol(res) != temp) browser() # remove when done debugging
+  # 
   if(complete_first) # this creates problem in BRKB balance sheet if TRUE
     res <- res[!is.na(res[, value_cols[1]]), ]
   
@@ -852,7 +864,6 @@ merge.elements <- function(x, y, ...) {
 # created by Wouter
 check_parents_of_elements <- function(x, y){
   # Load the dplyr package
-  
   # Perform the join and filter based on the conditions
   joined <- x |> dplyr::select(elementId, parentId) |>
     dplyr::inner_join(y |> dplyr::select(elementId, parentId), by = "elementId") 
@@ -874,8 +885,59 @@ check_parents_of_elements <- function(x, y){
     # order follows from get_relations()
     return(y_updated)
   }
+}
   
+check_parents_of_elements1 <- function(x, y, update = FALSE){
   
+  joined <- x |> dplyr::select(elementId, parentId) |>
+    dplyr::inner_join(y |> dplyr::select(elementId, parentId), by = "elementId") 
+  joined[is.na(joined)] <- "@NA@"
+  to_change <- joined |>
+    dplyr::filter(parentId.x != parentId.y)
+  if (update){
+    if (nrow(to_change) > 0){
+      print("Found elements with conflicitng parents")
+      print(to_change)
+      # now create a fix
+      y[is.na(y)] <- "@NA@"
+      y_updated <- y |> dplyr::left_join(to_change, by = dplyr::join_by(elementId)) |> 
+        dplyr::mutate(parentId = ifelse(!is.na(parentId.x), parentId.x, parentId)) |> 
+        dplyr::select(-parentId.x, -parentId.y) # Optionally, remove the D column if not needed
+      y_updated[y_updated == "@NA@"] <- NA
+      y_updated$order <- as.numeric(y_updated$order)
+      y_updated$level <- as.numeric(y_updated$level)
+      # need elementId, parentId and order as input for element_h()
+      # order follows from get_relations()
+      return(y_updated)
+    }
+  } else {
+    return(nrow(to_change))
+  }
+}
+
+compare_element_names <- function(x, y){
+  
+  num_x <- x[last_char_is_num(x)] |> sort()
+  num_y <- y[last_char_is_num(y)] |> sort()
+  test_passed = TRUE
+  if (length(num_x) == length(num_y)){
+    test <- num_x == num_y
+    if (sum(!test) > 0) {
+      test_passed <- FALSE
+      browser()
+    }
+  } else if (length(num_x) > length(num_y)){
+    alt_elements <- stringr::str_sub(x, end = -2)
+    if (sum(num_y %in% alt_elements) > 0){
+      test_passed <- FALSE
+      browser()
+    } else {
+      test_passed <- TRUE
+    }
+  } else {
+    browser()
+  }
+ return(test_passed)
 }
 
 
@@ -904,16 +966,30 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
     stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
   }
-
+  if (isFALSE(compare_element_names(names(x)[-5], names(y)[-5]))) browser()
   # merge elements
   # without any additional arguments, this just takes the attribute elements from x
   el_x <- get_elements(x)
   el_y <- get_elements(y)
+  # before merging elements, check if elementId and parentId combinations in x
+  # matches elementId and parentId combinations in y - if there are inconsistencies here
+  # we will run into issues down the road
+  # browser()
+  parents_check <- check_parents_of_elements1(el_x, el_y, update = FALSE)
+  if (parents_check > 0){
+    print(paste(parents_check, "number of mismatches in parent- and element Ids."))
+    print("Will fix now")
+    el_y_org <- el_y
+    el_y <- check_parents_of_elements1(el_x, el_y, update = TRUE)
+  }
+  # print(parents_check)
   #el_z <- merge(el_x, el_y) # how come this function calls merge.elements?
-  el_z <- try(merge.elements(el_x, el_y)) #WB change - i think this will do the same think, but make it more transparent
+  #el_z <- suppressWarnings(try(merge.elements(el_x, el_y), silent = TRUE)) 
+  el_z <- try(merge.elements(el_x, el_y), silent = TRUE) 
   
   z_error <- "try-error" %in% class(el_z)
   if (z_error){
+    browser()
     # issue is that some element Ids have different parent Ids
     # this causes different levels, orders and ids.
     # To do:
@@ -925,18 +1001,22 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     # - which is called by merge.elements
     # try merging elements again.
     # can get order from attribute $relations of statement
-    y_updated <- check_parents_of_elements(el_x, el_y)
-    el_z <- try(merge.elements(el_x, y_updated), silent = TRUE)
-    if ("try-error" %in% class(el_z)){
-      browser()
-      # issue not fixed
-    } else{
-      print("Fixed merging error.")
-    }
+    # y_updated <- check_parents_of_elements(el_x, el_y)
+    # el_z <- suppressWarnings(try(merge.elements(el_x, y_updated), silent = TRUE))
+    # if ("try-error" %in% class(el_z)){
+    #   browser()
+    #   # issue not fixed
+    # } else{
+    #   print("Fixed merging error.")
+    #   z_error <- FALSE
+    # }
     # browser()
     # elements2excel(el_x, file = "el_x.xlsx")
     # elements2excel(el_y, file = "el_y.xlsx")
-  } 
+  }
+  # this is to make sure warnings are not suppressed if they exists
+  el_z <- merge.elements(el_x, el_y)
+  
   if(!any(names(x)[-(1:4)] %in% names(y)[-(1:4)])  ) {
     #if same period and different statements
     col_pos <- which(names(y) %in% c("contextId", "startDate", "decimals"))
@@ -948,6 +1028,7 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     # if same statement type and different periods
     
     z <- merge.data.frame(x, y, all = TRUE, ...)
+    # if (sum(last_char_is_num(names(z)[-5])) > 0 ) browser()
     # replace NAs in values by zeros
     if(replace_na) {
       z[,5:ncol(z)][is.na(z[,5:ncol(z)])] <- 0
@@ -959,11 +1040,15 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     # order rows by endDate
     z <- z[order(z$endDate), ]
     # order columns based on original taxonomy
-    if (!z_error){
-      z <- z[,c(names(z)[1:4], el_z[["elementId"]])] 
-    }
+      # el_z[["elementId"]] is not necessarily unique - this creates problems.
+      # must have to do with earlier warning.
+      # need to fix.
+      # underlying cause seems to be that you can have the same element id with two different parent Id's
+      # I should check if this caused by difference of hierarchy of x and y
+      z <- z[ ,c(names(z)[1:4], el_z[["elementId"]])] 
+    
   }
-  
+  # if (sum(last_char_is_num(names(z)[-5])) > 0 ) browser()
   # add attributes
   class(z) <- class(x)
   if (z_error){
@@ -972,6 +1057,7 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     attr(z, "elements") <- el_z
   }
   attr(z, "role_id") <- attr(x, "role_id")
+  if (isFALSE("statement" %in% class(x))) browser()
   return(z)  
 }
 

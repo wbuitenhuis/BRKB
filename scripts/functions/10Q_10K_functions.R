@@ -223,7 +223,7 @@ parse_xbrl <- function(xbrl_files, cache_dir = "xbrl_cache/"){
   # it checks if all xbrl schemas are dwonloaded, and if not will do so and store in cache dir
   # parse xml files as well as all schemas and joins them
   # uses XBRL package for R
-
+  # browser()
   if (stringr::str_sub(cache_dir, start =-1) != "/"){
     cache_dir <- paste0(cache_dir, "/")
   }
