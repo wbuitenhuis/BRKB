@@ -1,52 +1,7 @@
 # https://www.sec.gov/data-research/sec-markets-data/form-n-port-data-sets
 # quarterly sec filings with holdings from all S mutual funds
-check_elementnames <- function(xbrl, fix = FALSE){
-  
-  sus_elements <- function(element_names){
-    # sus element if:
-    # 1.) last character is a digit
-    # 2.) element without last character does not exists
-    element_names <- element_names |> unique() 
-    ind <- last_char_is_num(element_names)
-    sus_elements <- element_names[ind]
-    alt_elements <- stringr::str_sub(sus_elements, end = -2)
-    ind <- alt_elements %in% element_names
-    sus_elements <- sus_elements[!ind]
-    return(sus_elements)
-  }
-  
-  update_elements <- function(elements, mapping){
-    ind <- match(elements, mapping$org)
-    new <- mapping$new[ind]
-    return(new)
-  }
-  
-  sus_fact <- sus_elements(xbrl$fact$elementId)
-  sus_element <- sus_elements(xbrl$element$elementId)
-  sus_calc_from <- sus_elements(xbrl$calculation$fromElementId)
-  sus_calc_to <- sus_elements(xbrl$calculation$toElementId)
-  if (fix == FALSE){
-    return(list(sus_facts = sus_fact, 
-                sus_elements = sus_element,
-                sus_calc_from = sus_calc_from,
-                sus_calc_to = sus_calc_to))
-  } else {
-    print(paste("Found", length(sus_calc_from) + length(sus_calc_to), "suspected elements in calculations."))
-    print(paste("Found", length(sus_fact), "suspected elements in facts."))
-    rep_element <- stringr::str_sub(sus_element, end = -2)
-    mapping <- data.frame(org = sus_element, new = rep_element)
-    xbrl$element$elementId <- xbrl$element$elementId |> update_elements(mapping = mapping)
-    xbrl$label$elementId <- xbrl$label$elementId |> update_elements(mapping = mapping)
-    xbrl$presentation$fromElementId <- xbrl$presentation$fromElementId |> update_elements(mapping = mapping)
-    xbrl$presentation$toElementId <- xbrl$presentation$toElementId |> update_elements(mapping = mapping)
-    xbrl$definition$fromElementId <- xbrl$definition$fromElementId |> update_elements(mapping = mapping)
-    xbrl$definition$toElementId <- xbrl$definition$toElementId |> update_elements(mapping = mapping)
-    xbrl$calculation$fromElementId <- xbrl$calculation$fromElementId |> update_elements(mapping = mapping)
-    xbrl$calculation$toElementId <- xbrl$calculation$toElementId |> update_elements(mapping = mapping)
-    xbrl$fact$elementId <- xbrl$fact$elementId |> update_elements(mapping = mapping)
-    return(xbrl)
-  }
-}
+
+
 
 brkb_timeseries_10q <- function(){
   # 1.) obtain CIK
@@ -65,7 +20,7 @@ brkb_timeseries_10q <- function(){
   # filing_urls <- "/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm"
   # filing_urls <- c("/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm",
   #                 "/Archives/edgar/data/1067983/000156459022028282/0001564590-22-028282-index.htm")
-  #filing_urls <- c("/Archives/edgar/data/1067983/000156459021055032/0001564590-21-055032-index.htm", 
+  filing_urls <- c("/Archives/edgar/data/1067983/000156459021055032/0001564590-21-055032-index.htm")
   #              "/Archives/edgar/data/1067983/000156459020052144/0001564590-20-052144-index.htm")
   # want:
   # income statement for all business units separately for different periods
@@ -82,13 +37,22 @@ brkb_timeseries_10q <- function(){
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
     # xbrl <- check_elementnames(xbrl, fix = TRUE)
     xbrl$fact <- remove_duplicated_facts(xbrl$fact)
+    #browser()
+    # ind <- stringr::str_which(xbrl$fact$fact, "3497")
+    # # ind <- stringr::str_which(xbrl$fact$fact, "3527")
+    # contex_id1 <- xbrl$fact$contextId[ind[1]]
+    # contex_id2 <- xbrl$fact$contextId[ind[2]]
+    # ind <- stringr::str_which(xbrl$context$contextId, contex_id1)
+    # context1 <- xbrl$context[ind, ]
+    # ind <- stringr::str_which(xbrl$context$contextId, contex_id2)
+    # context2 <- xbrl$context[ind, ]
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
                                  lbase = "calculation",
                                  complete_first = FALSE, 
                                  end_of_quarter = TRUE,
                                  basic_contexts = FALSE,
-                                 nonzero_only = TRUE,
-                                 aggregate_over_period_and_entity = TRUE)
+                                 nonzero_only = TRUE)
+                                 
     if (i == 1){
       st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
       st_all <- lapply(st, clean_BRKB_statement)
@@ -125,8 +89,8 @@ brkb_timeseries_10q <- function(){
       if (isFALSE("statement" %in% class(st_parent_i[[1]]))) browser()
       if (isFALSE("statement" %in% class(st_parent[[1]]))) browser()
       # browser()
-      st_parent <- merge.statements(st_parent, st_parent_i)
-      # st_all <- merge.statements(st_all, st_all_i)
+      st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE)
+      st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE)
     }
     save(st_all, st_parent, file = "./data/BRKB_statements.RData")
   }
@@ -136,8 +100,9 @@ brkb_timeseries_10q <- function(){
 clean_BRKB_statement <- function(st, parent_only = FALSE){
   # if missing for all BU, but not parent, should stay missing. 
   # need to track here which observations. Which variable meet these requirements?
-  # browser()
-  members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember")
+  #browser()
+  members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
+               "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember")
   st <- st |> dplyr::filter(value1 %in% members)
 
   if (nrow(st) > 1){
@@ -193,6 +158,56 @@ statements2excel <- function(st, file = "statements.xlsx"){
   }
   openxlsx::saveWorkbook(xl.workbook, file = excel_filename, overwrite = TRUE)
   options("openxlsx.numFmt" = NULL)  
+}
+
+check_elementnames <- function(xbrl, fix = FALSE){
+  # Checks foreElements name that end on a digit, while there is no apparent reason for it 
+  # If fix = TRUE, wil remove last character from element name.
+  # Input is a parsed xbrl object
+  sus_elements <- function(element_names){
+    # sus element if:
+    # 1.) last character is a digit
+    # 2.) element without last character does not exists
+    element_names <- element_names |> unique() 
+    ind <- last_char_is_num(element_names)
+    sus_elements <- element_names[ind]
+    alt_elements <- stringr::str_sub(sus_elements, end = -2)
+    ind <- alt_elements %in% element_names
+    sus_elements <- sus_elements[!ind]
+    return(sus_elements)
+  }
+  
+  update_elements <- function(elements, mapping){
+    ind <- match(elements, mapping$org)
+    new <- mapping$new[ind]
+    return(new)
+  }
+  
+  sus_fact <- sus_elements(xbrl$fact$elementId)
+  sus_element <- sus_elements(xbrl$element$elementId)
+  sus_calc_from <- sus_elements(xbrl$calculation$fromElementId)
+  sus_calc_to <- sus_elements(xbrl$calculation$toElementId)
+  if (fix == FALSE){
+    return(list(sus_facts = sus_fact, 
+                sus_elements = sus_element,
+                sus_calc_from = sus_calc_from,
+                sus_calc_to = sus_calc_to))
+  } else {
+    print(paste("Found", length(sus_calc_from) + length(sus_calc_to), "suspected elements in calculations."))
+    print(paste("Found", length(sus_fact), "suspected elements in facts."))
+    rep_element <- stringr::str_sub(sus_element, end = -2)
+    mapping <- data.frame(org = sus_element, new = rep_element)
+    xbrl$element$elementId <- xbrl$element$elementId |> update_elements(mapping = mapping)
+    xbrl$label$elementId <- xbrl$label$elementId |> update_elements(mapping = mapping)
+    xbrl$presentation$fromElementId <- xbrl$presentation$fromElementId |> update_elements(mapping = mapping)
+    xbrl$presentation$toElementId <- xbrl$presentation$toElementId |> update_elements(mapping = mapping)
+    xbrl$definition$fromElementId <- xbrl$definition$fromElementId |> update_elements(mapping = mapping)
+    xbrl$definition$toElementId <- xbrl$definition$toElementId |> update_elements(mapping = mapping)
+    xbrl$calculation$fromElementId <- xbrl$calculation$fromElementId |> update_elements(mapping = mapping)
+    xbrl$calculation$toElementId <- xbrl$calculation$toElementId |> update_elements(mapping = mapping)
+    xbrl$fact$elementId <- xbrl$fact$elementId |> update_elements(mapping = mapping)
+    return(xbrl)
+  }
 }
 
 

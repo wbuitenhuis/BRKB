@@ -234,7 +234,8 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
                           complete_only = FALSE, complete_first = TRUE, 
                           basic_contexts = TRUE, nr_periods = 1, end_of_quarter = TRUE,
                           nonzero_only = FALSE,
-                          aggregate_over_period_and_entity = TRUE) {
+                          aggregate_over_period_and_entity = TRUE,
+                          filter_members = FALSE) {
   # gets data in normal format (with variables as columns and 
   # time periods as rows)
   remove_all_zeros_nas <- function(df) { df[rowSums(df != 0 & !is.na(df)) > 0, ] }
@@ -253,8 +254,6 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   #   getElement("contextId") |> unique()
   context_filter <- res |>
     getElement("contextId") |> unique() 
-  # decimals_filter <- res |> dplyr::filter(level == min_level) |>
-  #   getElement("decimals") |>  unique()
   decimals_filter <- res |> dplyr::filter(level == min_level) |>
     getElement("decimals") |>  unique()
   res <-
@@ -277,7 +276,7 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   if (end_of_quarter){
     filter_quarters <- quarters(res$date)
   } else {
-    filter_quarters <- unique(res$dates)
+    filter_quarters <- unique(res$date)
   }
   res$periodLength <- as.numeric(res$date - as.Date(res$startDate))
   res$periodLength <- sprintf("%03d", as.numeric(res$periodLength)) # add leading zeros
@@ -292,10 +291,12 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
     dplyr::select(contextId, startDate, endDate, elementId, fact, decimals, value1)
   res <- res |> tidyr::pivot_wider(names_from = "elementId", values_from = "fact") 
   res <- res |> dplyr::arrange(endDate)
-  member_filter <- !(stringr::str_detect(res$value1, "us-gaap:") | 
-                       stringr::str_detect(res$value1, "srt:")) | 
-                        is.na(res$value1)
-  res <- res[member_filter, ]
+  if (filter_members){
+    member_filter <- !(stringr::str_detect(res$value1, "us-gaap:") | 
+                         stringr::str_detect(res$value1, "srt:")) | 
+      is.na(res$value1)
+    res <- res[member_filter, ]
+  }
   
   vec1 <- elements$elementId[! elements$elementId %in% names(res)] 
   # what if this is empty? all elementIds are in names(res)
@@ -304,6 +305,7 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   
   value_cols <- finstr_cols(res, inverse = TRUE)
   res <- res |> dplyr::mutate(dplyr::across(dplyr::any_of(value_cols), as.numeric))
+  #res <- res |> dplyr::mutate(dplyr::any_of(value_cols), as.numeric)
 
   res <- res[, c(finstr_cols(res), elements$elementId)]
   
@@ -623,7 +625,7 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
                                 lbase = "calculation",
                                 basic_contexts = TRUE,
                                 end_of_quarter = FALSE,
-                                aggregate_over_period_and_entity = TRUE)  {
+                                filter_members = FALSE)  {
   
   # xbrl is parsed xbrl
   if( !all( c("role", "calculation", "fact", "context", "element") %in% names(xbrl_vars))) {
@@ -667,10 +669,10 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
           links <- relations[[stat_name]]
           elements <- elements_list[[stat_name]]
           #label <- xbrl_get_labels(xbrl_vars, elements)
-          #browser()
           res <- xbrl_get_data_WB(elements, xbrl_vars, 
-                               complete_only, complete_first,
-                               basic_contexts, end_of_quarter)
+                               complete_only = complete_only, complete_first = complete_first,
+                               basic_contexts = basic_contexts, end_of_quarter = end_of_quarter, 
+                               filter_members = filter_members)
           # delete taxonomy prefix
           names(res) <- gsub(taxonomy_prefix, "", names(res))          
           links$fromElementId <- gsub(taxonomy_prefix, "", links$fromElementId)          
@@ -962,7 +964,6 @@ compare_element_names <- function(x, y){
 #' @return statement object
 #' @export
 merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) {
-
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
     stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
   }
@@ -982,40 +983,12 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     el_y_org <- el_y
     el_y <- check_parents_of_elements1(el_x, el_y, update = TRUE)
   }
-  # print(parents_check)
-  #el_z <- merge(el_x, el_y) # how come this function calls merge.elements?
-  #el_z <- suppressWarnings(try(merge.elements(el_x, el_y), silent = TRUE)) 
   el_z <- try(merge.elements(el_x, el_y), silent = TRUE) 
   
   z_error <- "try-error" %in% class(el_z)
   if (z_error){
     browser()
-    # issue is that some element Ids have different parent Ids
-    # this causes different levels, orders and ids.
-    # To do:
-    # find different assignment of parentIds to elementIds
-    # make them consistent between the two statements
-    # recalculate levels, orders and ids for updated statement.
-    # need get_relations for order of elements, need element_h for levels (hierachy)
-    # I believe this is done with element_h() - element hierarchy 
-    # - which is called by merge.elements
-    # try merging elements again.
-    # can get order from attribute $relations of statement
-    # y_updated <- check_parents_of_elements(el_x, el_y)
-    # el_z <- suppressWarnings(try(merge.elements(el_x, y_updated), silent = TRUE))
-    # if ("try-error" %in% class(el_z)){
-    #   browser()
-    #   # issue not fixed
-    # } else{
-    #   print("Fixed merging error.")
-    #   z_error <- FALSE
-    # }
-    # browser()
-    # elements2excel(el_x, file = "el_x.xlsx")
-    # elements2excel(el_y, file = "el_y.xlsx")
   }
-  # this is to make sure warnings are not suppressed if they exists
-  el_z <- merge.elements(el_x, el_y)
   
   if(!any(names(x)[-(1:4)] %in% names(y)[-(1:4)])  ) {
     #if same period and different statements
@@ -1045,7 +1018,9 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
       # need to fix.
       # underlying cause seems to be that you can have the same element id with two different parent Id's
       # I should check if this caused by difference of hierarchy of x and y
-      z <- z[ ,c(names(z)[1:4], el_z[["elementId"]])] 
+      if ("value1" %in% names(z)) desc_col <- 5
+      else desc_col <- 4
+      z <- z[ ,c(names(z)[1:desc_col], el_z[["elementId"]])] 
     
   }
   # if (sum(last_char_is_num(names(z)[-5])) > 0 ) browser()

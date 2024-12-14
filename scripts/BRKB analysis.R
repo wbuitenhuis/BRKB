@@ -133,9 +133,10 @@ source("./scripts/functions/10Q_10K_functions.R")
 edgar_timeseries_10q()
 
 source("./scripts/functions/brkb_analysis_functions.R")
-#debugonce(brkb_timeseries_10q)
+# sink(file=paste0(Sys.Date(), ".log"))
 brkb_timeseries_10q()
-
+# sink()
+print("done")
 
 load(file = "./data/BRKB_statements.RData")
 statements2excel(st_all, file = "statement1.xlsx")
