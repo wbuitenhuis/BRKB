@@ -386,8 +386,10 @@ compare_statement_names <- function(x, y, no_check = FALSE){
   # Define a function to count common elements
   perc_common_elements <- function(df1, df2) {
     # Find common elements in the first variable
-    common_elements <- intersect(df1[[1]], df2[[1]])
-    ret <- length(common_elements) / min(nrow(df1),nrow(df2))
+    df1 <- df1[,-(1:5)]
+    df2 <- df2[,-(1:5)]
+    common_elements <- intersect(names(df1), names(df2))
+    ret <- length(common_elements) / min(ncol(df1),ncol(df2))
     return(ret)
   }
 
@@ -410,7 +412,7 @@ compare_statement_names <- function(x, y, no_check = FALSE){
     browser()
     y <- y[names(x)]
     return(y)
-  } else if (sum(ind) == 1){
+  } else if (sum(ind) == length(x) - 1){
     # only one name difference
     browser()
     names(y)[!ind] <- names(x)[!(names(x) %in% names(y))]
@@ -419,13 +421,54 @@ compare_statement_names <- function(x, y, no_check = FALSE){
     # check which have different names
     missing_names_y <- names(y)[!ind]
     missing_names_x <- names(x)[!(names(x) %in% names(y))]
-    browser()
     y_missing <- y[missing_names_y]
     x_missing <- x[missing_names_x]
-    
-    # check % similar elements
+    common_elements <- matrix(NA, nrow = length(x_missing), ncol = length(y_missing))
+    for (i in 1:length(x_missing)){
+      for(j in 1:length(y_missing)){
+        common_elements[i,j] <- perc_common_elements(x_missing[[i]], y_missing[[j]])
+      }
+    }
+    # browser()
+    ind2 <- apply(common_elements, 2, which.max)
+    # if TRUE, have an issue
+    if (sum(duplicated(ind2)) > 1) browser() # have major issue
+    if (sum(duplicated(ind2)) > 0){
+      # This can happen if all variables in a statement are renamed in one period.
+      # Next best matching method is either:
+      # 2.) process of elimination: if one of duplicates has high match and other is a tie
+      # assign highest match
+      ind3 <- which(ind2 == ind2[duplicated(ind2)])
+      common_elements3 <- common_elements[ind3, ind3]
+      which.max(common_elements3)
+      max3 <- apply(common_elements3,2,max)
+      winner <- which.max(max3)
+      loser <- which.min(max3)
+      not_assigned <- (1:length(ind2))[!(1:length(ind2)) %in% ind2]
+      ind2[ind3[loser]] <- not_assigned
+      # 1.) assume statement order did not change
+      # 3. ) go by closest statement name match
+      
+      #m <- stringdist::stringdistmatrix(names(x), names(y))
+      #closest_matches <- apply(m, 2,function(t) names(x)[which.min(t)])
+      #names(y) <- closest_matches
+      
+      # excel_filename <- "debugging.xlsx"
+      # excel_filename <- paste0("./output/", excel_filename)
+      # options("openxlsx.numFmt" = "#,##0,,")
+      # xl.workbook <- openxlsx::createWorkbook()
+      # openxlsx::addWorksheet(xl.workbook, sheetName = "x", zoom = 130)
+      # openxlsx::writeData(xl.workbook, sheet = "x", x= x_missing[[3]], startRow = 1, startCol = 1)
+      # openxlsx::addWorksheet(xl.workbook, sheetName = "y", zoom = 130)
+      # openxlsx::writeData(xl.workbook, sheet = "y", x= y_missing[[3]], startRow = 1, startCol = 1)
+      # openxlsx::saveWorkbook(xl.workbook, file = excel_filename, overwrite = TRUE)
+      # options("openxlsx.numFmt" = NULL)  
+      # browser()
+    } 
+      
+    names(y)[!ind] <- missing_names_x[ind2]
   }
-  
+  y <- y[names(x)]
   class(y) <- class(x)
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) browser()
   

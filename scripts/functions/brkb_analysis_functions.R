@@ -49,7 +49,7 @@ brkb_timeseries_10q <- function(){
     # ind <- stringr::str_which(xbrl$context$contextId, contex_id2)
     # context2 <- xbrl$context[ind, ]
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
-                                 lbase = "calculation",
+                                 lbase = "presentation",
                                  complete_first = FALSE, 
                                  end_of_quarter = TRUE,
                                  basic_contexts = FALSE,
@@ -65,7 +65,7 @@ brkb_timeseries_10q <- function(){
       #statements2excel(st_pres, file = "statement_pres.xlsx")
     # browser()
     } else {
-      if (i == 18) browser()
+      #if (i == 18) browser()
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
       # statements2excel(st_parent_i, file = "statement2.xlsx")
       st_all_i <- lapply(st, clean_BRKB_statement)
@@ -175,6 +175,126 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
   }
   return(st)
 }
+
+# present time series for different business units:
+# revenue / operating expenses
+# insurance
+# energy
+# rail roads
+# investment gains
+run_brkb_bu_analysis <- function(st){
+  library(dplyr)
+  is <- st[[2]]
+  is <- is[,-(1:2)]
+  browser()
+  is <- is |> group_by(endDate, value1) |> summarise(across(everything(), sum))
+  browser()
+  ins <- is |> filter(value1 %in% c("brka:InsuranceAndOtherMember"))
+  ins <- ins |> select_if(~ any(!is.na(.)) & any(. != 0))
+  
+  rail <- is |> filter(value1 %in% c("brka:CargoAndFreightMember", 
+                                     "us-gaap:CargoAndFreightMember"))
+  rail <- rail |> select_if(~ any(!is.na(.)) & any(. != 0))
+  energy <- is |> filter(value1 %in% c("brka:UtilitiesAndEnergyMember"))
+  energy <- energy |> select_if(~ any(!is.na(.)) & any(. != 0))
+  
+  infra <-  is |> filter(value1 %in% c("brka:RailroadUtilitiesAndEnergyMember"))
+  infra <- infra |> select_if(~ any(!is.na(.)) & any(. != 0))
+  
+  # in "brka:InsuranceAndOtherMember"
+  insurance_prem <- c("PremiumsEarnedNet")
+  service_rev <- c("RevenueFromContractWithCustomerExcludingAssessedTax", 
+                   "brka_SalesAndServiceRevenue",
+                   "RevenueOtherFinancialServices", 
+                   "brka_ServiceRevenuesAndOtherIncome")
+  
+  # in "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", "us-gaap:CargoAndFreightMember"
+  freight_rev <- c("Revenues", "OperatingExpenses", "brka_FreightRailTransportationRevenues") 
+  energy_rev <- c("RevenueFromContractWithCustomerExcludingAssessedTax", 
+    "brka_UtilityAndEnergyOperatingRevenues","brka_EnergyOperatingRevenues")
+  
+  freight <- rail[,c("endDate", "value1", freight_rev[freight_rev %in% names(rail)])]
+  freight <- infra[, c("endDate", "value1")]
+    
+  leasing_rev <- "OperatingLeaseLeaseIncome"
+ 
+  leasing_cost <- "brka_CostOfLeasing"
+  
+  insurance_loss <- c("LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
+    "PolicyholderBenefitsAndClaimsIncurredNet", "IncurredClaimsPropertyCasualtyAndLiability"
+  )
+  life_ins_ben <-c("PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth", 
+      "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",            "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")
+  ins_underw_expenses <- c("ExpenseRelatedToDistributionOrServicingAndUnderwritingFees",
+  "brka_InsuranceUnderwritingExpenses", )
+  service_cost <- "OtherFinancialServicesCosts"
+ 
+  
+  # under insurance
+  interest_div_inc <- c("InvestmentIncomeInterestAndDividend", 
+      "brka_InvestmentIncomeInterestDividendAndOther")
+  interest_exp_ins <- "InterestExpense"
+  c("GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments", 
+    "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
+    "GainLossOnInvestments", "NonoperatingGainsLosses")
+  
+  #under energy / rail
+  interest_exp_infra <- "InterestExpense"
+  
+  
+  c("PremiumsEarnedNet",
+  "brka_SalesAndServiceRevenue",
+  "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue",
+  "OtherIncome",
+  "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
+  "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
+  # "SalesRevenueNet",
+  "RevenueOtherFinancialServices",
+  "RevenueFromContractWithCustomerIncludingAssessedTax",
+  "InvestmentIncomeInterestAndDividend",
+  "OperatingLeaseLeaseIncome",
+  "brka_InvestmentIncomeInterestDividendAndOther",
+  "brka_FreightRailTransportationRevenues",
+  "brka_UtilityAndEnergyOperatingRevenues",
+  "brka_EnergyOperatingRevenues",
+  "brka_ServiceRevenuesAndOtherIncome",
+  "Revenues",
+  "RevenueFromContractWithCustomerExcludingAssessedTax",
+  "NonoperatingIncomeExpense",
+  "GainLossOnInvestments",
+  "NonoperatingGainsLosses",
+  "CostsAndExpensesAbstract",
+  "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
+  "PolicyholderBenefitsAndClaimsIncurredNet",
+  "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",
+  "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth",
+  "IncurredClaimsPropertyCasualtyAndLiability",
+  "brka_InterestExpenseAndForeignCurrencyTransactionGainLossOnDebt",
+  "ExpenseRelatedToDistributionOrServicingAndUnderwritingFees",
+  "OtherFinancialServicesCosts",
+  "brka_InsuranceUnderwritingExpenses",
+  "CostOfGoodsAndServicesSold",
+  "brka_CostOfLeasing",
+  # "SellingGeneralAndAdministrativeExpense"
+  "OperatingExpenses",
+  "brka_CostsOfServicesAndOperatingExpenses",
+  "OtherExpenses",
+  "InterestExpense",
+  "CostsAndExpenses")
+  
+  #summarise(across(everything(), sum, .names = "sum_{col}"))
+  
+  # Print the aggregated dataframe
+  print(aggregated_df)
+  
+}
+
+# create a time series with share buy back and estimated buy back prices
+brkb_shr_buybacks <- function(st){
+  
+}
+
+
 
 elements2excel <- function(el, file = "el.xlsx"){
   excel_filename <- file

@@ -139,7 +139,10 @@ brkb_timeseries_10q()
 print("done")
 
 load(file = "./data/BRKB_statements.RData")
+# tidyr::pivot_longer(st_all[[2]], names_to = "bu", )
 statements2excel(st_all, file = "statement1.xlsx")
 statements2excel(st_parent, file = "statement.xlsx")
 
-
+load(file = "./data/BRKB_statements.RData")
+source("./scripts/functions/brkb_analysis_functions.R")
+run_brkb_bu_analysis(st_all)
