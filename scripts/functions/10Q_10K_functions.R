@@ -373,6 +373,133 @@ remove_duplicated_facts <- function(facts, verbose = FALSE){
   return(facts)
 }
 
+# makes sure statements y will have same names in same order as statements x
+compare_statement_names <- function(x, y, no_check = FALSE){
+
+  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
+      stop("Not statements objects")
+  }
+  if (length(x) != length(y)){
+    stop("statements objects are not of same length")
+  }
+  
+  # Define a function to count common elements
+  perc_common_elements <- function(df1, df2) {
+    # Find common elements in the first variable
+    common_elements <- intersect(df1[[1]], df2[[1]])
+    ret <- length(common_elements) / min(nrow(df1),nrow(df2))
+    return(ret)
+  }
+
+  same_name <- names(x) == names(y)
+  # all names are the same, nothing to do
+  if (sum(same_name) == length(x)) return(y)
+  
+  # check for duplicates in names
+  dupes_x <- duplicated(names(x))
+  dupes_y <- duplicated(names(y))
+  if (sum(dupes_x) > 0 | sum(dupes_y) > 0){
+    # have duplicated names
+    browser()
+  }
+  
+  ind <- names(y) %in% names(x)
+  if (sum(ind) == length(x)){
+    # x and y have the same names, but they are ordered differently.
+    # just need to reorder y
+    browser()
+    y <- y[names(x)]
+    return(y)
+  } else if (sum(ind) == 1){
+    # only one name difference
+    browser()
+    names(y)[!ind] <- names(x)[!(names(x) %in% names(y))]
+  } else {
+    # multiple name differences
+    # check which have different names
+    missing_names_y <- names(y)[!ind]
+    missing_names_x <- names(x)[!(names(x) %in% names(y))]
+    browser()
+    y_missing <- y[missing_names_y]
+    x_missing <- x[missing_names_x]
+    
+    # check % similar elements
+  }
+  
+  class(y) <- class(x)
+  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) browser()
+  
+  return(y)
+  # which names are not in x?
+  # only 1
+  # more than 1
+  
+  # dif_name <- !same_name
+  # 
+  # ind <- which(dif_name)
+  # 
+  # 
+  # if (!no_check){
+  #   m <- stringdist::stringdistmatrix(names(x), names(y))
+  #   if (prefer_x){
+  #     closest_matches <- apply(m, 2,function(t) names(x)[which.min(t)])
+  #     names(y) <- closest_matches
+  #     # keep statement order of x
+  #   } else {
+  #     closest_matches <- apply(m, 1,function(t) names(y)[which.min(t)])
+  #     names(x) <- closest_matches
+  #   }
+  # } else {
+  #   
+  #   if (prefer_x){
+  #     names(y) <- names(x)
+  #   } else {
+  #     names(x) <- names(y)
+  #   } 
+  # }
+  # initial_order <- names(y)
+  # y <- y[names(x)]
+  # # browser()
+  # if (sum(initial_order == names(y)) != length(y)){
+  #   print("changed order of statements.")
+  # }
+  # class(y) <- class(x)
+  # if( !"statements" %in% class(x) || !"statements" %in% class(y) ) browser()
+  # 
+  # return(list(x,y))
+  
+  # 
+  # 
+  # different_names <- names(y) != names(x)
+  # different_names <- c(setdiff(names(x),names(y)), setdiff(names(y),names(x))) 
+  # # if (sum(different_names) > 0){
+  # if (length(different_names) > 0){
+  #   # split up statement objects into two or three different objects.
+  #   # one with the same names - they will be merged
+  #   # the others will not be merged, but reported seperatly.
+  #   browser()
+  #   joint_names <- intersect(names(x), names(y))
+  #   only_in_x <- setdiff(names(x),names(y))
+  #   z_x <- lapply(only_in_x, function(statement){
+  #     x[[statement]]
+  #   })
+  #   only_in_y <- setdiff(names(x),names(y))
+  #   z_y <- lapply(only_in_y, function(statement){
+  #     y[[statement]]
+  #   })
+  #   x <- lapply(joint_names, function(statement){
+  #     x[[statement]]
+  #   })
+  #   y <- lapply(joint_names, function(statement){
+  #     y[[statement]]
+  #   })
+  # }
+  #   browser()
+}
+
+
+
+
 # xbrl_statement <- function(xbrl.vars){
 #   # largely based on sample code from:
 #   # https://github.com/bergant/XBRLFiles 

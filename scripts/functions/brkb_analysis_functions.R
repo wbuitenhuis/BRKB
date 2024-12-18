@@ -20,12 +20,14 @@ brkb_timeseries_10q <- function(){
   # filing_urls <- "/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm"
   # filing_urls <- c("/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm",
   #                 "/Archives/edgar/data/1067983/000156459022028282/0001564590-22-028282-index.htm")
-  filing_urls <- c("/Archives/edgar/data/1067983/000156459021055032/0001564590-21-055032-index.htm")
+  # filing_urls <- c("/Archives/edgar/data/1067983/000156459021055032/0001564590-21-055032-index.htm")
   #              "/Archives/edgar/data/1067983/000156459020052144/0001564590-20-052144-index.htm")
   # want:
   # income statement for all business units separately for different periods
   # aggregate balance sheet for different periods
 
+  # IS2_parent <- IS2_all <- NULL
+  add_is2 <- FALSE
   for (i in 1:min(40, length(filing_urls))){
 
     if (sum(is.na(filing_urls) > 0)) browser()
@@ -37,9 +39,9 @@ brkb_timeseries_10q <- function(){
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
     # xbrl <- check_elementnames(xbrl, fix = TRUE)
     xbrl$fact <- remove_duplicated_facts(xbrl$fact)
-    #browser()
+    # browser()
     # ind <- stringr::str_which(xbrl$fact$fact, "3497")
-    # # ind <- stringr::str_which(xbrl$fact$fact, "3527")
+    # ind <- stringr::str_which(xbrl$fact$fact, "3527")
     # contex_id1 <- xbrl$fact$contextId[ind[1]]
     # contex_id2 <- xbrl$fact$contextId[ind[2]]
     # ind <- stringr::str_which(xbrl$context$contextId, contex_id1)
@@ -56,42 +58,81 @@ brkb_timeseries_10q <- function(){
     if (i == 1){
       st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
       st_all <- lapply(st, clean_BRKB_statement)
+      class(st_parent) <- class(st_all) <- "statements"
       n_parent <- length(st_parent)
       n_all <- length(st_all)
       # statements2excel(st_all, file = "statement1.xlsx")
       #statements2excel(st_pres, file = "statement_pres.xlsx")
     # browser()
     } else {
+      if (i == 18) browser()
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
       # statements2excel(st_parent_i, file = "statement2.xlsx")
       st_all_i <- lapply(st, clean_BRKB_statement)
+      class(st_parent_i) <- class(st_all_i) <- "statements"
       if (length(st_parent_i) > n_parent){
-        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent_i)){
-          st_parent_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
-        } else {
-          statements2excel(st_parent_i)
-          browser()
-        }
+         if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent_i)){
+           add_is2 <- TRUE
+           IS2_parent <- st_parent_i[["StatementConsolidatedStatementsOfEarnings2"]]
+           st_parent_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
+         } else {
+      #     statements2excel(st_parent_i)
+           browser()
+         }
       }
       if (length(st_all_i) > n_all){
-        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all_i)){
-          st_all_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
-        } else {
-          # statements2excel(st_all_i)
-          browser()
-        }
+      #   browser()
+         if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all_i)){
+           add_is2 <- TRUE
+           IS2_all <- st_all_i[["StatementConsolidatedStatementsOfEarnings2"]]
+           st_all_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
+         } else {
+      #     # statements2excel(st_all_i)
+           browser()
+         }
       }
       if (length(st_parent_i) < n_parent){
-        browser()
+        # browser()
+        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent)){
+          add_is2 <- TRUE
+          IS2_parent <- st_parent[["StatementConsolidatedStatementsOfEarnings2"]]
+          st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- NULL
+        } else {
+          browser()
+        }
         # statements2excel(st_parent_i)
       }
-      
+      if (length(st_all_i) < n_parent){
+        # browser()
+        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all)){
+          add_is2 <- TRUE
+          IS2_all <- st_all[["StatementConsolidatedStatementsOfEarnings2"]]
+          st_all[["StatementConsolidatedStatementsOfEarnings2"]] <- NULL
+        } else {
+          browser()
+        }
+        # statements2excel(st_parent_i)
+      }
       if (isFALSE("statement" %in% class(st_parent_i[[1]]))) browser()
       if (isFALSE("statement" %in% class(st_parent[[1]]))) browser()
-      # browser()
+      different_names <- names(st_parent) != names(st_parent_i)
+      if (sum(different_names) > 0){
+        st_parent_i <- compare_statement_names(st_parent, st_parent_i)
+      }
+      different_names <- names(st_all) != names(st_all_i)
+      if (sum(different_names) > 0){
+        st_all_i <- compare_statement_names(st_all, st_all_i)
+      }
       st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE)
       st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE)
+      if (add_is2){
+        st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_parent
+        st_all[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_all
+      }
     }
+    add_is2 <- FALSE
+    n_parent <- length(st_parent)
+    n_all <- length(st_all)
     save(st_all, st_parent, file = "./data/BRKB_statements.RData")
   }
   print("Done")
@@ -102,7 +143,7 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
   # need to track here which observations. Which variable meet these requirements?
   #browser()
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
-               "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember")
+               "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", "us-gaap:CargoAndFreightMember")
   st <- st |> dplyr::filter(value1 %in% members)
 
   if (nrow(st) > 1){
@@ -150,7 +191,7 @@ elements2excel <- function(el, file = "el.xlsx"){
 statements2excel <- function(st, file = "statements.xlsx"){
   excel_filename <- file
   excel_filename <- paste0("./output/", excel_filename)
-  options("openxlsx.numFmt" = "#,##0")
+  options("openxlsx.numFmt" = "#,##0,,")
   xl.workbook <- openxlsx::createWorkbook()
   for (i in 1:length(st)){
     openxlsx::addWorksheet(xl.workbook, sheetName = paste0("st_",i), zoom = 130)
@@ -243,4 +284,4 @@ brkb_bs_statement <- function(xbrl.vars){
     st_w_context[[i]] <- st_w_context[[i]] |> dplyr::filter(entity %in% c(NA, "brka:InsuranceAndOtherMember", 
                                                                           "brka:RailroadUtilitiesAndEnergyMember"))
   }
-} 
+}

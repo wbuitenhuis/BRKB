@@ -239,7 +239,7 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   # gets data in normal format (with variables as columns and 
   # time periods as rows)
   remove_all_zeros_nas <- function(df) { df[rowSums(df != 0 & !is.na(df)) > 0, ] }
-  
+  # browser()
   if( !("data.frame" %in% class(elements)) )
     elements <- data.frame(elementId = elements, stringsAsFactors = FALSE)
   # browser()
@@ -461,24 +461,6 @@ get_elements_h <- function(elements) {
       dplyr::select(elementId, parentId) |>
       dplyr::left_join(elements, by=c("parentId"="elementId")) |> 
       dplyr::arrange(id)
-    #if (nrow(df1) > nrow(elements)) {
-    #  browser() # have an issue. should not happen.
-    # Can not have more children than we have elements. 
-    # check if order is missing - is that an issue?
-    # if id is missing - is that an issue?
-    # ind <- match(temp2$elementId, elements$parentId)
-      # df1 <- df1 |> dplyr::filter(!( == B & is.na(C))) 
-      # df1 <- df1 |> group_by(elementId, parentId) |>
-      #   filter(!(duplicated(elementId) & duplicated(parentId) & is.na(parentId.y))) |> 
-      #   ungroup()
-    # }
-    # if (sum(is.na(df1$id)) == nrow(df1) & nrow(df1) > 0) browser()
-    # temp3 <- temp2 |>
-    #   dplyr::select(elementId, parentId) |>
-    #   dplyr::left_join(elements, by=c("parentId"="elementId"),
-    #                    relationship = "many-to-many") |>
-    #   dplyr::arrange(id)
-    # if (duplicated(df1$elementId) |> sum() > 0) browser()
     nrow(df1) > 0})
   {
     level <- level + 1
@@ -1050,26 +1032,19 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
 #' @export
 merge.statements <- function(x, y, replace_na = TRUE, ...) {
 
-  # if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
-  #   stop("Not statements objects")
-  # }
-  # browser()
+  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
+      stop("Not statements objects")
+  }
+
   if (length(x) != length(y)){
-    print("Different number of statements to merge")
-    browser()
-    # differe
+    stop("Different number of statements to merge")
   }
-  different_names <- names(y) != names(x)
-  if (sum(different_names) > 0){
-    print(paste("Statements have different names, will change them to most recent one"))
-    names(y)[different_names] <- names(x)[different_names]
-    # browser()
-  }
+  
   z <-
-    lapply(names(x), function(statement){
-      merge.statement(x[[statement]], y[[statement]], replace_na = replace_na, ...)
-    })
-  names(z) <- names(y)
+      lapply(names(x), function(statement){
+        merge.statement(x[[statement]], y[[statement]], replace_na = replace_na, ...)
+      })
+    names(z) <- names(y)
   class(z) <- "statements"
   return(z)
 }
