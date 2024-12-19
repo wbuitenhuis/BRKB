@@ -374,7 +374,7 @@ remove_duplicated_facts <- function(facts, verbose = FALSE){
 }
 
 # makes sure statements y will have same names in same order as statements x
-compare_statement_names <- function(x, y, no_check = FALSE){
+compare_statement_names <- function(x, y){
 
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
       stop("Not statements objects")
@@ -429,10 +429,9 @@ compare_statement_names <- function(x, y, no_check = FALSE){
         common_elements[i,j] <- perc_common_elements(x_missing[[i]], y_missing[[j]])
       }
     }
-    # browser()
     ind2 <- apply(common_elements, 2, which.max)
-    # if TRUE, have an issue
-    if (sum(duplicated(ind2)) > 1) browser() # have major issue
+  
+      if (sum(duplicated(ind2)) > 1) browser() # have major issue
     if (sum(duplicated(ind2)) > 0){
       # This can happen if all variables in a statement are renamed in one period.
       # Next best matching method is either:
@@ -448,22 +447,6 @@ compare_statement_names <- function(x, y, no_check = FALSE){
       ind2[ind3[loser]] <- not_assigned
       # 1.) assume statement order did not change
       # 3. ) go by closest statement name match
-      
-      #m <- stringdist::stringdistmatrix(names(x), names(y))
-      #closest_matches <- apply(m, 2,function(t) names(x)[which.min(t)])
-      #names(y) <- closest_matches
-      
-      # excel_filename <- "debugging.xlsx"
-      # excel_filename <- paste0("./output/", excel_filename)
-      # options("openxlsx.numFmt" = "#,##0,,")
-      # xl.workbook <- openxlsx::createWorkbook()
-      # openxlsx::addWorksheet(xl.workbook, sheetName = "x", zoom = 130)
-      # openxlsx::writeData(xl.workbook, sheet = "x", x= x_missing[[3]], startRow = 1, startCol = 1)
-      # openxlsx::addWorksheet(xl.workbook, sheetName = "y", zoom = 130)
-      # openxlsx::writeData(xl.workbook, sheet = "y", x= y_missing[[3]], startRow = 1, startCol = 1)
-      # openxlsx::saveWorkbook(xl.workbook, file = excel_filename, overwrite = TRUE)
-      # options("openxlsx.numFmt" = NULL)  
-      # browser()
     } 
       
     names(y)[!ind] <- missing_names_x[ind2]
@@ -473,71 +456,7 @@ compare_statement_names <- function(x, y, no_check = FALSE){
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) browser()
   
   return(y)
-  # which names are not in x?
-  # only 1
-  # more than 1
   
-  # dif_name <- !same_name
-  # 
-  # ind <- which(dif_name)
-  # 
-  # 
-  # if (!no_check){
-  #   m <- stringdist::stringdistmatrix(names(x), names(y))
-  #   if (prefer_x){
-  #     closest_matches <- apply(m, 2,function(t) names(x)[which.min(t)])
-  #     names(y) <- closest_matches
-  #     # keep statement order of x
-  #   } else {
-  #     closest_matches <- apply(m, 1,function(t) names(y)[which.min(t)])
-  #     names(x) <- closest_matches
-  #   }
-  # } else {
-  #   
-  #   if (prefer_x){
-  #     names(y) <- names(x)
-  #   } else {
-  #     names(x) <- names(y)
-  #   } 
-  # }
-  # initial_order <- names(y)
-  # y <- y[names(x)]
-  # # browser()
-  # if (sum(initial_order == names(y)) != length(y)){
-  #   print("changed order of statements.")
-  # }
-  # class(y) <- class(x)
-  # if( !"statements" %in% class(x) || !"statements" %in% class(y) ) browser()
-  # 
-  # return(list(x,y))
-  
-  # 
-  # 
-  # different_names <- names(y) != names(x)
-  # different_names <- c(setdiff(names(x),names(y)), setdiff(names(y),names(x))) 
-  # # if (sum(different_names) > 0){
-  # if (length(different_names) > 0){
-  #   # split up statement objects into two or three different objects.
-  #   # one with the same names - they will be merged
-  #   # the others will not be merged, but reported seperatly.
-  #   browser()
-  #   joint_names <- intersect(names(x), names(y))
-  #   only_in_x <- setdiff(names(x),names(y))
-  #   z_x <- lapply(only_in_x, function(statement){
-  #     x[[statement]]
-  #   })
-  #   only_in_y <- setdiff(names(x),names(y))
-  #   z_y <- lapply(only_in_y, function(statement){
-  #     y[[statement]]
-  #   })
-  #   x <- lapply(joint_names, function(statement){
-  #     x[[statement]]
-  #   })
-  #   y <- lapply(joint_names, function(statement){
-  #     y[[statement]]
-  #   })
-  # }
-  #   browser()
 }
 
 

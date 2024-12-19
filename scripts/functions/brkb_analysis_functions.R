@@ -61,13 +61,8 @@ brkb_timeseries_10q <- function(){
       class(st_parent) <- class(st_all) <- "statements"
       n_parent <- length(st_parent)
       n_all <- length(st_all)
-      # statements2excel(st_all, file = "statement1.xlsx")
-      #statements2excel(st_pres, file = "statement_pres.xlsx")
-    # browser()
     } else {
-      #if (i == 18) browser()
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
-      # statements2excel(st_parent_i, file = "statement2.xlsx")
       st_all_i <- lapply(st, clean_BRKB_statement)
       class(st_parent_i) <- class(st_all_i) <- "statements"
       if (length(st_parent_i) > n_parent){
@@ -76,12 +71,10 @@ brkb_timeseries_10q <- function(){
            IS2_parent <- st_parent_i[["StatementConsolidatedStatementsOfEarnings2"]]
            st_parent_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
          } else {
-      #     statements2excel(st_parent_i)
            browser()
          }
       }
       if (length(st_all_i) > n_all){
-      #   browser()
          if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all_i)){
            add_is2 <- TRUE
            IS2_all <- st_all_i[["StatementConsolidatedStatementsOfEarnings2"]]
@@ -92,7 +85,6 @@ brkb_timeseries_10q <- function(){
          }
       }
       if (length(st_parent_i) < n_parent){
-        # browser()
         if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent)){
           add_is2 <- TRUE
           IS2_parent <- st_parent[["StatementConsolidatedStatementsOfEarnings2"]]
@@ -103,7 +95,6 @@ brkb_timeseries_10q <- function(){
         # statements2excel(st_parent_i)
       }
       if (length(st_all_i) < n_parent){
-        # browser()
         if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all)){
           add_is2 <- TRUE
           IS2_all <- st_all[["StatementConsolidatedStatementsOfEarnings2"]]
@@ -111,7 +102,6 @@ brkb_timeseries_10q <- function(){
         } else {
           browser()
         }
-        # statements2excel(st_parent_i)
       }
       if (isFALSE("statement" %in% class(st_parent_i[[1]]))) browser()
       if (isFALSE("statement" %in% class(st_parent[[1]]))) browser()
@@ -143,7 +133,8 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
   # need to track here which observations. Which variable meet these requirements?
   #browser()
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
-               "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", "us-gaap:CargoAndFreightMember")
+               "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", 
+               "us-gaap:CargoAndFreightMember", "brka_FinanceAndFinancialProductsMember")
   st <- st |> dplyr::filter(value1 %in% members)
 
   if (nrow(st) > 1){
@@ -187,6 +178,7 @@ run_brkb_bu_analysis <- function(st){
   is <- st[[2]]
   is <- is[,-(1:2)]
   browser()
+  is$endDate <- as.Date(is$endDate)
   is <- is |> group_by(endDate, value1) |> summarise(across(everything(), sum))
   browser()
   ins <- is |> filter(value1 %in% c("brka:InsuranceAndOtherMember"))
@@ -209,22 +201,64 @@ run_brkb_bu_analysis <- function(st){
                    "brka_ServiceRevenuesAndOtherIncome")
   
   # in "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", "us-gaap:CargoAndFreightMember"
-  freight_rev <- c("Revenues", "OperatingExpenses", "brka_FreightRailTransportationRevenues") 
-  energy_rev <- c("RevenueFromContractWithCustomerExcludingAssessedTax", 
+  freight_rev <- c("Revenues", "OperatingExpenses", "brka_CostsOfServicesAndOperatingExpenses", "brka_FreightRailTransportationRevenues", 
+                   "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue") 
+  energy_rev <- c("Revenues", "OperatingExpenses","RevenueFromContractWithCustomerExcludingAssessedTax", 
     "brka_UtilityAndEnergyOperatingRevenues","brka_EnergyOperatingRevenues")
   
-  freight <- rail[,c("endDate", "value1", freight_rev[freight_rev %in% names(rail)])]
-  freight <- infra[, c("endDate", "value1")]
-    
+  # freight from 2019 to present, can merge these two data frames
+  freight <- rail[,c("endDate", "value1", "Revenues", "OperatingExpenses")]
+  freight1 <- infra[, c("endDate", "value1", "brka_FreightRailTransportationRevenues", "OperatingExpenses")]
+  colnames(freight1) <- colnames(freight)
+  freight <- rbind(freight, freight1)
+  freight <- freight[order(freight$endDate), ]
+  # Remove rows where the entire row has only NA or 0 values
+  freight <- freight[apply(freight[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
+  # more data on rail business here: 
+  # https://www.sec.gov/Archives/edgar/data/15511/000001551118000005/bnsfrailway-12312017x10xk.htm#sAE294AC985E55CB8887B10681A4F9210
+  # https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000015511&owner=include&count=40&hidefilings=0
+  
+  energy <- energy[,c("endDate", "value1", "RevenueFromContractWithCustomerExcludingAssessedTax", "brka_CostsOfServicesAndOperatingExpenses")]
+  energy1 <- infra[, c("endDate", "value1", "brka_FreightRailTransportationRevenues", "OperatingExpenses")]
+  colnames(energy) <- colnames(energy1) <- colnames(freight)
+  energy <- rbind(energy, energy1)
+  energy <- energy[order(energy$endDate), ]
+  energy <- energy[apply(energy[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
+  
+  insurance <- ins[, c("endDate", "value1", "PremiumsEarnedNet", 
+                       "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
+                       "IncurredClaimsPropertyCasualtyAndLiability",
+                       "PolicyholderBenefitsAndClaimsIncurredNet",
+                       "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",
+                       "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth",
+                       # "PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth", <- seems missing, 
+                       # need to add additional member - "brka_FinanceAndFinancialProductsMember"
+                       "brka_InsuranceUnderwritingExpenses",
+                       "ExpenseRelatedToDistributionOrServicingAndUnderwritingFees")]
+  leasing <- ins[,c("endDate", "value1","OperatingLeaseLeaseIncome", "brka_CostOfLeasing")]
+  service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
+                    "RevenueFromContractWithCustomerIncludingAssessedTax", 
+                    "RevenueFromContractWithCustomerExcludingAssessedTax", 
+                    "SalesRevenueNet",
+                    "CostOfGoodsAndServicesSold")]
+  investment1 <- ins[,c("endDate", "value1", "brka_InvestmentIncomeInterestDividendAndOther",
+                        "InvestmentIncomeInterestAndDividend")]
+  investment <- is[c("endDate", "value1", "NonoperatingIncomeExpense",
+                     "NonoperatingGainsLosses",
+                     "GainLossOnInvestments",
+                     "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
+                     "IncomeLossFromEquityMethodInvestments")]
+  investment <- investment[apply(investment[,3:7], 1, function(row) !all(is.na(row) | row == 0)), ]
+  other_costs <- ins["SellingGeneralAndAdministrativeExpense"]
+  
   leasing_rev <- "OperatingLeaseLeaseIncome"
  
   leasing_cost <- "brka_CostOfLeasing"
-  
-  insurance_loss <- c("LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
-    "PolicyholderBenefitsAndClaimsIncurredNet", "IncurredClaimsPropertyCasualtyAndLiability"
-  )
+
+
   life_ins_ben <-c("PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth", 
-      "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",            "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")
+      "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity", 
+      "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")
   ins_underw_expenses <- c("ExpenseRelatedToDistributionOrServicingAndUnderwritingFees",
   "brka_InsuranceUnderwritingExpenses", )
   service_cost <- "OtherFinancialServicesCosts"
@@ -248,7 +282,7 @@ run_brkb_bu_analysis <- function(st){
   "OtherIncome",
   "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
   "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
-  # "SalesRevenueNet",
+  "SalesRevenueNet",
   "RevenueOtherFinancialServices",
   "RevenueFromContractWithCustomerIncludingAssessedTax",
   "InvestmentIncomeInterestAndDividend",
