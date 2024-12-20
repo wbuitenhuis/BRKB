@@ -134,7 +134,7 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
   #browser()
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
                "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", 
-               "us-gaap:CargoAndFreightMember", "brka_FinanceAndFinancialProductsMember")
+               "us-gaap:CargoAndFreightMember", "brka:FinanceAndFinancialProductsMember")
   st <- st |> dplyr::filter(value1 %in% members)
 
   if (nrow(st) > 1){
@@ -175,13 +175,12 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
 # investment gains
 run_brkb_bu_analysis <- function(st){
   library(dplyr)
+  library(xts)
   is <- st[[2]]
   is <- is[,-(1:2)]
-  browser()
   is$endDate <- as.Date(is$endDate)
   is <- is |> group_by(endDate, value1) |> summarise(across(everything(), sum))
-  browser()
-  ins <- is |> filter(value1 %in% c("brka:InsuranceAndOtherMember"))
+  ins <- is |> filter(value1 %in% c("brka:InsuranceAndOtherMember", "brka:FinanceAndFinancialProductsMember"))
   ins <- ins |> select_if(~ any(!is.na(.)) & any(. != 0))
   
   rail <- is |> filter(value1 %in% c("brka:CargoAndFreightMember", 
@@ -192,7 +191,7 @@ run_brkb_bu_analysis <- function(st){
   
   infra <-  is |> filter(value1 %in% c("brka:RailroadUtilitiesAndEnergyMember"))
   infra <- infra |> select_if(~ any(!is.na(.)) & any(. != 0))
-  
+
   # in "brka:InsuranceAndOtherMember"
   insurance_prem <- c("PremiumsEarnedNet")
   service_rev <- c("RevenueFromContractWithCustomerExcludingAssessedTax", 
@@ -213,17 +212,20 @@ run_brkb_bu_analysis <- function(st){
   freight <- rbind(freight, freight1)
   freight <- freight[order(freight$endDate), ]
   # Remove rows where the entire row has only NA or 0 values
+  browser()
   freight <- freight[apply(freight[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
+  freight <- xts(x = freight[,3:4], order.by = freight$endDate)
   # more data on rail business here: 
   # https://www.sec.gov/Archives/edgar/data/15511/000001551118000005/bnsfrailway-12312017x10xk.htm#sAE294AC985E55CB8887B10681A4F9210
   # https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000015511&owner=include&count=40&hidefilings=0
   
   energy <- energy[,c("endDate", "value1", "RevenueFromContractWithCustomerExcludingAssessedTax", "brka_CostsOfServicesAndOperatingExpenses")]
   energy1 <- infra[, c("endDate", "value1", "brka_FreightRailTransportationRevenues", "OperatingExpenses")]
-  colnames(energy) <- colnames(energy1) <- colnames(freight)
+  names(energy) <- names(energy1) <- c("endDate", "value1","Revenues","OperatingExpenses")
   energy <- rbind(energy, energy1)
   energy <- energy[order(energy$endDate), ]
   energy <- energy[apply(energy[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
+  energy <- xts(x = energy[,3:4], order.by = energy$endDate)
   
   insurance <- ins[, c("endDate", "value1", "PremiumsEarnedNet", 
                        "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
@@ -231,100 +233,105 @@ run_brkb_bu_analysis <- function(st){
                        "PolicyholderBenefitsAndClaimsIncurredNet",
                        "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",
                        "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth",
-                       # "PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth", <- seems missing, 
+                       # "PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth",
                        # need to add additional member - "brka_FinanceAndFinancialProductsMember"
                        "brka_InsuranceUnderwritingExpenses",
                        "ExpenseRelatedToDistributionOrServicingAndUnderwritingFees")]
+  insurance1 <- insurance |> filter(value1 == "brka:FinanceAndFinancialProductsMember")
+  insurance<- insurance |> filter(value1 == "brka:InsuranceAndOtherMember")
+  insurance$InsuranceUnderwritingExpenses <- 
+    apply(insurance[, c("brka_InsuranceUnderwritingExpenses", 
+                        "ExpenseRelatedToDistributionOrServicingAndUnderwritingFees")],
+          1, sum, na.rm = TRUE)
+  insurance$IncurredClaimsPropertyCasualtyAndLiability <- 
+    apply(insurance[, c("IncurredClaimsPropertyCasualtyAndLiability", 
+                        "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1")],
+          1, sum, na.rm = TRUE)
+  insurance$PolicyHolderBenefitAndClaimsIncured <- 
+    apply(insurance[, c("PolicyholderBenefitsAndClaimsIncurredNet",
+                       "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",
+                       "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")],
+          1, sum, na.rm = TRUE)
+  insurance <- insurance[, c("endDate", "PremiumsEarnedNet", 
+                             "InsuranceUnderwritingExpenses",
+                             "IncurredClaimsPropertyCasualtyAndLiability",
+                             "PolicyHolderBenefitAndClaimsIncured")]
+  insurance <- xts(x = insurance[,-1], order.by = insurance$endDate)
+  
+  insurance1 <- insurance1[, c("endDate", "value1", "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")]
+  
   leasing <- ins[,c("endDate", "value1","OperatingLeaseLeaseIncome", "brka_CostOfLeasing")]
+  leasing <- leasing |> filter(value1 == "brka:InsuranceAndOtherMember")
+  leasing <- xts(x = leasing[,3:4], order.by = leasing$endDate)
+  names(leasing) <- c("LeaseIncome", "CostOfLeasing")
+  
   service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
                     "RevenueFromContractWithCustomerIncludingAssessedTax", 
                     "RevenueFromContractWithCustomerExcludingAssessedTax", 
                     "SalesRevenueNet",
                     "CostOfGoodsAndServicesSold")]
+  service <- service |> filter(value1 == "brka:InsuranceAndOtherMember")
+  service$Revenue <- apply(service[, c("brka_SalesAndServiceRevenue",
+                                       "RevenueFromContractWithCustomerIncludingAssessedTax",
+                                       "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                       "SalesRevenueNet")], 1, sum, na.rm = TRUE)
+  service <- service[, c("endDate", "Revenue", "CostOfGoodsAndServicesSold")]
+  service <- xts(x = service[,-1], order.by = service$endDate)
+  
   investment1 <- ins[,c("endDate", "value1", "brka_InvestmentIncomeInterestDividendAndOther",
-                        "InvestmentIncomeInterestAndDividend")]
+                        "InvestmentIncomeInterestAndDividend", "InterestExpense")]
+  investment1 <- investment1 |> filter(value1 == "brka:InsuranceAndOtherMember")
+  investment1$InvestmentIncomeInterestAndDividend <- 
+    apply(investment1[, c("brka_InvestmentIncomeInterestDividendAndOther",
+                          "InvestmentIncomeInterestAndDividend")], 1, sum, na.rm=TRUE)
+  investment1 <- investment1[, c("endDate", "InvestmentIncomeInterestAndDividend", "InterestExpense")]
+  
   investment <- is[c("endDate", "value1", "NonoperatingIncomeExpense",
                      "NonoperatingGainsLosses",
                      "GainLossOnInvestments",
                      "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
+                     "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
                      "IncomeLossFromEquityMethodInvestments")]
+  
   investment <- investment[apply(investment[,3:7], 1, function(row) !all(is.na(row) | row == 0)), ]
-  other_costs <- ins["SellingGeneralAndAdministrativeExpense"]
+  investment <- investment |> filter(is.na(value1))
+  investment$GainLossOnInvestments <- 
+    apply(investment[, c("NonoperatingGainsLosses", 
+                         "NonoperatingIncomeExpense",
+                         "GainLossOnInvestments",
+                         "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
+                         "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet")], 
+          1, sum, na.rm=TRUE)
+  investment <- investment[, c("endDate", "GainLossOnInvestments", "IncomeLossFromEquityMethodInvestments")]
+  investment <- merge(investment, investment1, all = TRUE)
+  investment <- xts(x = investment[,-1], order.by = investment$endDate)
   
-  leasing_rev <- "OperatingLeaseLeaseIncome"
- 
-  leasing_cost <- "brka_CostOfLeasing"
-
-
-  life_ins_ben <-c("PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth", 
-      "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity", 
-      "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")
-  ins_underw_expenses <- c("ExpenseRelatedToDistributionOrServicingAndUnderwritingFees",
-  "brka_InsuranceUnderwritingExpenses", )
-  service_cost <- "OtherFinancialServicesCosts"
- 
-  
-  # under insurance
-  interest_div_inc <- c("InvestmentIncomeInterestAndDividend", 
-      "brka_InvestmentIncomeInterestDividendAndOther")
-  interest_exp_ins <- "InterestExpense"
-  c("GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments", 
-    "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
-    "GainLossOnInvestments", "NonoperatingGainsLosses")
-  
-  #under energy / rail
+  other_costs_ins <- ins["SellingGeneralAndAdministrativeExpense"]
   interest_exp_infra <- "InterestExpense"
   
-  
-  c("PremiumsEarnedNet",
-  "brka_SalesAndServiceRevenue",
-  "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue",
-  "OtherIncome",
-  "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
-  "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
-  "SalesRevenueNet",
-  "RevenueOtherFinancialServices",
-  "RevenueFromContractWithCustomerIncludingAssessedTax",
-  "InvestmentIncomeInterestAndDividend",
-  "OperatingLeaseLeaseIncome",
-  "brka_InvestmentIncomeInterestDividendAndOther",
-  "brka_FreightRailTransportationRevenues",
-  "brka_UtilityAndEnergyOperatingRevenues",
-  "brka_EnergyOperatingRevenues",
-  "brka_ServiceRevenuesAndOtherIncome",
-  "Revenues",
-  "RevenueFromContractWithCustomerExcludingAssessedTax",
-  "NonoperatingIncomeExpense",
-  "GainLossOnInvestments",
-  "NonoperatingGainsLosses",
-  "CostsAndExpensesAbstract",
-  "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
-  "PolicyholderBenefitsAndClaimsIncurredNet",
-  "PolicyholderBenefitsAndClaimsIncurredLifeAndAnnuity",
-  "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth",
-  "IncurredClaimsPropertyCasualtyAndLiability",
-  "brka_InterestExpenseAndForeignCurrencyTransactionGainLossOnDebt",
-  "ExpenseRelatedToDistributionOrServicingAndUnderwritingFees",
-  "OtherFinancialServicesCosts",
-  "brka_InsuranceUnderwritingExpenses",
-  "CostOfGoodsAndServicesSold",
-  "brka_CostOfLeasing",
-  # "SellingGeneralAndAdministrativeExpense"
-  "OperatingExpenses",
-  "brka_CostsOfServicesAndOperatingExpenses",
-  "OtherExpenses",
-  "InterestExpense",
-  "CostsAndExpenses")
-  
-  #summarise(across(everything(), sum, .names = "sum_{col}"))
-  
-  # Print the aggregated dataframe
-  print(aggregated_df)
-  
+  service_cost <- "OtherFinancialServicesCosts" # not part of insurance and other group
+
+  save(investment, service, leasing, insurance, freight, energy,
+       file = "./data/BRKB_income_bu.Rdata")
 }
 
 # create a time series with share buy back and estimated buy back prices
-brkb_shr_buybacks <- function(st){
+brkb_shr_buybacks_analysis <- function(st){
+  library(dplyr)
+  library(xts)
+  cf <- st[[4]]
+  cf <- cf |> select_if(~ any(!is.na(.)) & any(. != 0))
+  equity_p_and_s <- cf[,c("startDate", "endDate", 
+                          "PaymentsToAcquireEquitySecuritiesFvNi",
+                          "ProceedsFromSaleOfEquitySecuritiesFvNi",
+    "brka_ProceedsFromSalesAndRedemptionsOfAvailableForSaleSecuritiesEquitySecurities",
+    "brka_ProceedsFromSalesAndRedemptionsOfEquitySecurities",
+    "PaymentsForRepurchaseOfCommonStock",
+    "brka_PaymentsToAcquireEquitySecurities",
+    "brka_ProceedsFromSalesOfEquitySecurities",
+    "PaymentsToAcquireAvailableForSaleSecuritiesEquity")]
+  
+  browser()
   
 }
 

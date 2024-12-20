@@ -138,11 +138,35 @@ brkb_timeseries_10q()
 # sink()
 print("done")
 
-load(file = "./data/BRKB_statements.RData")
-# tidyr::pivot_longer(st_all[[2]], names_to = "bu", )
-statements2excel(st_all, file = "statement1.xlsx")
-statements2excel(st_parent, file = "statement.xlsx")
+# load(file = "./data/BRKB_statements.RData")
+# # tidyr::pivot_longer(st_all[[2]], names_to = "bu", )
+# statements2excel(st_all, file = "statement1.xlsx")
+# statements2excel(st_parent, file = "statement.xlsx")
 
 load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
 run_brkb_bu_analysis(st_all)
+
+load(file = "./data/BRKB_income_bu.RData")
+plot(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses)
+plot(log(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses))
+
+plot(insurance$InsuranceUnderwritingExpenses/insurance$PremiumsEarnedNet)
+plot(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses - insurance$IncurredClaimsPropertyCasualtyAndLiability -insurance$PolicyHolderBenefitAndClaimsIncured)
+
+plot(leasing$LeaseIncome - leasing$CostOfLeasing)
+plot(leasing$CostOfLeasing/leasing$LeaseIncome)
+plot(service$Revenue - service$CostOfGoodsAndServicesSold)
+plot(log(service$Revenue - service$CostOfGoodsAndServicesSold))
+
+plot(service$CostOfGoodsAndServicesSold/service$Revenue)
+
+plot(freight$Revenues - freight$OperatingExpenses)
+plot(freight$OperatingExpenses /freight$Revenues)
+plot(energy$Revenues-energy$OperatingExpenses)
+plot(energy$OperatingExpenses/energy$Revenues)
+
+source("./scripts/functions/brkb_analysis_functions.R")
+brkb_shr_buybacks_analysis(st_parent)
+
+
