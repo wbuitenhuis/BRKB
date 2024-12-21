@@ -268,6 +268,8 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   
   # work to filter non relevant reporting periods
   gs <- res |> dplyr::group_by(startDate, endDate) |> summarise(n = dplyr::n())
+  startDates <- unique(gs$startDate)
+  endDates <- unique(gs$endDate)
   gs$dates <- paste(gs$startDate, gs$endDate)
   res$dates <- paste(res$startDate, res$endDate)
   ind <- match(res$dates, gs$dates)
@@ -275,9 +277,11 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   res$date <- as.Date(res$endDate)
   if (end_of_quarter){
     filter_quarters <- quarters(res$date)
+    filter_quarters <- filter_quarters[filter_quarters %in% c(startDates, endDates)]
   } else {
     filter_quarters <- unique(res$date)
   }
+  #browser()
   res$periodLength <- as.numeric(res$date - as.Date(res$startDate))
   res$periodLength <- sprintf("%03d", as.numeric(res$periodLength)) # add leading zeros
   res <- res |> dplyr::arrange(dplyr::desc(endDate), periodLength, dplyr::desc(n))
@@ -336,27 +340,6 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
     res <- res |> dplyr::filter(contextId %in% context_filter2)
   }
   
-  # check if elementId has digit at last element
-  # if (last_char_is_num(value_cols) |> sum() > 0) browser()
-  # temp <- ncol(res) #  debuging test
-  # temp2 <- names(res)
-  # if (aggregate_over_period_and_entity){
-  #   # aggregate over same startDate, endDate and value1
-  #   res <- res |> dplyr::group_by(startDate, endDate, value1) |> 
-  #     dplyr::summarize(dplyr::across(value_cols, \(x) sum(x, na.rm = FALSE)))
-  #   # current issue is that this sets all missing values equal to zero if na.rm = TRUE
-  #   # however here we make them all NA if one is missing in aggregation.
-  #   # that is also not necessarily true
-  #   # in addition this aggregation removes variables context id and ...
-  #   desc_obs <- res |> dplyr::select(!value_cols)
-  #   res <- desc_obs |> dplyr::left_join(res, 
-  #                                          by = c("startDate", "endDate", "value1"))
-  #   res <- res |> dplyr::group_by(startDate, endDate, value1) |>
-  #     dplyr::slice(1) 
-  #   #|> dplyr:ungroup()
-  # }
-  # if (ncol(res) != temp) browser() # remove when done debugging
-  # 
   if(complete_first) # this creates problem in BRKB balance sheet if TRUE
     res <- res[!is.na(res[, value_cols[1]]), ]
   

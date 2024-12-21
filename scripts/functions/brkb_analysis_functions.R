@@ -3,7 +3,7 @@
 
 
 
-brkb_timeseries_10q <- function(){
+brkb_statements <- function(form = "10-Q", years = 13){
   # 1.) obtain CIK
   # 2.) download 10-Q and 10-K links
   # 3.) For each 10)Q form, download xbrl instance and xbrl schema
@@ -13,22 +13,26 @@ brkb_timeseries_10q <- function(){
   source("./scripts/finstr/finstr.R")
   source("./scripts/functions/10Q_10K_functions.R")
   cik <- "0001067983"
-  type <- "10-Q"
-  filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
-  # filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-  # filing_urls <- "/Archives/edgar/data/1067983/000095017023058993/0000950170-23-058993-index.htm"
-  # filing_urls <- "/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm"
-  # filing_urls <- c("/Archives/edgar/data/1067983/000095017023038705/0000950170-23-038705-index.htm",
-  #                 "/Archives/edgar/data/1067983/000156459022028282/0001564590-22-028282-index.htm")
-  # filing_urls <- c("/Archives/edgar/data/1067983/000156459021055032/0001564590-21-055032-index.htm")
-  #              "/Archives/edgar/data/1067983/000156459020052144/0001564590-20-052144-index.htm")
-  # want:
-  # income statement for all business units separately for different periods
-  # aggregate balance sheet for different periods
-
-  # IS2_parent <- IS2_all <- NULL
-  add_is2 <- FALSE
-  for (i in 1:min(40, length(filing_urls))){
+  type <- form
+  filing_urls <- edgar_link_to_filings(cik = cik, form = type)
+  if (form == "10-Q"){
+    n <- years * 3
+  } else {
+    n <- years
+  }
+  add_is2 <- TRUE
+  # needed to update existing file
+  if (file.exists("./data/BRKB_statements.RData")){
+    load("./data/BRKB_statements.RData")
+  }
+  object_names <- c("st_all_10Q", "st_parent_10Q", "st_all_10K", "st_parent_10K")
+  for (i in 1:length(object_names)){
+    if (!exists(object_names[i])){
+      assign(object_names[i], 0)
+    }
+  }
+  
+  for (i in 1:min(n, length(filing_urls))){
 
     if (sum(is.na(filing_urls) > 0)) browser()
     if (nchar(filing_urls[i]) < 5 | is.na(filing_urls[i])) browser()
@@ -39,15 +43,6 @@ brkb_timeseries_10q <- function(){
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
     # xbrl <- check_elementnames(xbrl, fix = TRUE)
     xbrl$fact <- remove_duplicated_facts(xbrl$fact)
-    # browser()
-    # ind <- stringr::str_which(xbrl$fact$fact, "3497")
-    # ind <- stringr::str_which(xbrl$fact$fact, "3527")
-    # contex_id1 <- xbrl$fact$contextId[ind[1]]
-    # contex_id2 <- xbrl$fact$contextId[ind[2]]
-    # ind <- stringr::str_which(xbrl$context$contextId, contex_id1)
-    # context1 <- xbrl$context[ind, ]
-    # ind <- stringr::str_which(xbrl$context$contextId, contex_id2)
-    # context2 <- xbrl$context[ind, ]
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
                                  lbase = "presentation",
                                  complete_first = FALSE, 
@@ -56,14 +51,14 @@ brkb_timeseries_10q <- function(){
                                  nonzero_only = TRUE)
                                  
     if (i == 1){
-      st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
-      st_all <- lapply(st, clean_BRKB_statement)
+      st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
+      st_all <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = FALSE)
       class(st_parent) <- class(st_all) <- "statements"
       n_parent <- length(st_parent)
       n_all <- length(st_all)
     } else {
-      st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE)
-      st_all_i <- lapply(st, clean_BRKB_statement)
+      st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
+      st_all_i <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = TRUE)
       class(st_parent_i) <- class(st_all_i) <- "statements"
       if (length(st_parent_i) > n_parent){
          if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent_i)){
@@ -121,21 +116,31 @@ brkb_timeseries_10q <- function(){
       }
     }
     add_is2 <- FALSE
+    if (form == "10-Q"){
+      st_all_10Q <- st_all
+      st_parent_10Q <- st_parent
+    } else {
+      st_all_10K <- st_all
+      st_parent_10K <- st_parent
+    }
     n_parent <- length(st_parent)
     n_all <- length(st_all)
-    save(st_all, st_parent, file = "./data/BRKB_statements.RData")
+    save(st_all_10Q, st_parent_10Q, st_all_10K, st_parent_10K,
+         file = "./data/BRKB_statements.RData")
   }
   print("Done")
 }
 
-clean_BRKB_statement <- function(st, parent_only = FALSE){
+clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   # if missing for all BU, but not parent, should stay missing. 
   # need to track here which observations. Which variable meet these requirements?
   #browser()
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
                "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", 
                "us-gaap:CargoAndFreightMember", "brka:FinanceAndFinancialProductsMember")
-  st <- st |> dplyr::filter(value1 %in% members)
+  if (filter){
+    st <- st |> dplyr::filter(value1 %in% members)  
+  }
 
   if (nrow(st) > 1){
     desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
@@ -153,16 +158,19 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
       st_bu, function(x) length(stats::na.omit(x))==0 
     )
     st_bu[is.na(st_bu)] <- 0
-    st_bu[,empty_cols_bu & not_empty_cols_pa] <- NA
-    st_bu_total <- st_bu |>
+    if (nrow(st_bu) > 0){
+      st_bu[,empty_cols_bu & not_empty_cols_pa] <- NA
+      st_bu_total <- st_bu |>
+        dplyr::filter(value1 %in% c("brka:InsuranceAndOtherMember", 
+                                    "brka:RailroadUtilitiesAndEnergyMember")) |> 
         dplyr::summarise(dplyr::across(value_cols, \(x) sum(x, na.rm = TRUE)))
-    ind <- which(empty_cols_pa) - length(desc_vars)
-    st_pa[, empty_cols_pa] <- st_bu_total[, ind]
-    if (parent_only){
-      st <- st_pa  
-    } else {
+      ind <- which(empty_cols_pa) - length(desc_vars)
+      st_pa[, empty_cols_pa] <- st_bu_total[, ind]  
       st <- rbind(st_bu, st_parent = st_pa)
     }
+    if (parent_only){
+      st <- st_pa  
+    } 
   }
   return(st)
 }
@@ -176,6 +184,7 @@ clean_BRKB_statement <- function(st, parent_only = FALSE){
 run_brkb_bu_analysis <- function(st){
   library(dplyr)
   library(xts)
+  browser()
   is <- st[[2]]
   is <- is[,-(1:2)]
   is$endDate <- as.Date(is$endDate)
@@ -212,7 +221,6 @@ run_brkb_bu_analysis <- function(st){
   freight <- rbind(freight, freight1)
   freight <- freight[order(freight$endDate), ]
   # Remove rows where the entire row has only NA or 0 values
-  browser()
   freight <- freight[apply(freight[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
   freight <- xts(x = freight[,3:4], order.by = freight$endDate)
   # more data on rail business here: 
@@ -313,6 +321,60 @@ run_brkb_bu_analysis <- function(st){
 
   save(investment, service, leasing, insurance, freight, energy,
        file = "./data/BRKB_income_bu.Rdata")
+}
+
+brkb_operatingincome <- function(st){
+  # input statement parent
+  library(xts)
+  is <- st[[2]]
+  is <- is |> select_if(~ any(!is.na(.)) & any(. != 0))
+  is$endDate <- as.Date(is$endDate)
+  # nr_shares <- is[,c("endDate", "WeightedAverageNumberOfSharesOutstandingBasic")]
+  # nr_shares has too many zeros
+  income <- is[,c("endDate",
+  "ProfitLoss",
+  "IncomeTaxExpenseBenefit",
+  "NetIncomeLossAttributableToNoncontrollingInterest",
+  "NetIncomeLoss")]
+  
+  investment_income <-is[,c("endDate",
+                            "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
+                            "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
+                            "InvestmentIncomeInterestAndDividend",
+                            "brka_InvestmentIncomeInterestDividendAndOther",
+                            "GainLossOnInvestments",
+                            "NonoperatingGainsLosses",
+                            "NonoperatingIncomeExpense",
+                            "InterestExpense",
+                            "GainLossOnDerivativeInstrumentsNetPretax"
+                            )]
+  
+  investment_income$InvestmentIncomeInterestAndDividend <- 
+    investment_income$InvestmentIncomeInterestAndDividend +
+    investment_income$brka_InvestmentIncomeInterestDividendAndOther
+  
+  investment_income <- investment_income |> dplyr::select(-brka_InvestmentIncomeInterestDividendAndOther)
+  investment_income <- investment_income |> dplyr::mutate(NonoperatingGainsLosses =
+                    NonoperatingGainsLosses + NonoperatingIncomeExpense)
+  investment_income <- investment_income |> dplyr::mutate(GainLossOnInvestments =
+                                                            GainLossOnInvestments + 
+                                                            GainLossOnDerivativeInstrumentsNetPretax)
+  investment_income <- investment_income |> dplyr::mutate(GainLossOnInvestments =
+      ifelse(GainLossOnInvestments == 0 | NonoperatingGainsLosses == 0,
+             GainLossOnInvestments + NonoperatingGainsLosses, GainLossOnInvestments))
+
+    investment_income <- investment_income |> dplyr::select(-c(NonoperatingIncomeExpense,
+                                                            GainLossOnDerivativeInstrumentsNetPretax,
+                                                            NonoperatingGainsLosses))
+  investment_income <- investment_income |> dplyr::filter(endDate > as.Date("2013-01-01")) 
+  investment_income <- investment_income |>
+    dplyr::select(-c(GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments,
+                     OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet))
+  investment_income <- xts(x = investment_income[, -1], order.by = investment_income$endDate)
+  #nr_shares <- xts(x = nr_shares[, -1], order.by = nr_shares$endDate)
+  income <- xts(x = income[,-1], order.by = income$endDate)
+  ret <- merge.xts(income, investment_income, all = TRUE)
+  return(ret)
 }
 
 # create a time series with share buy back and estimated buy back prices

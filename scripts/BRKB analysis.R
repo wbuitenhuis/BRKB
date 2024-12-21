@@ -134,7 +134,9 @@ edgar_timeseries_10q()
 
 source("./scripts/functions/brkb_analysis_functions.R")
 # sink(file=paste0(Sys.Date(), ".log"))
-brkb_timeseries_10q()
+brkb_statements(form = "10-K", years = 13)
+brkb_statements(form = "10-Q", years = 13)
+
 # sink()
 print("done")
 
@@ -145,7 +147,7 @@ print("done")
 
 load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
-run_brkb_bu_analysis(st_all)
+run_brkb_bu_analysis(st_all_10K)
 
 load(file = "./data/BRKB_income_bu.RData")
 plot(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses)
@@ -166,7 +168,11 @@ plot(freight$OperatingExpenses /freight$Revenues)
 plot(energy$Revenues-energy$OperatingExpenses)
 plot(energy$OperatingExpenses/energy$Revenues)
 
-source("./scripts/functions/brkb_analysis_functions.R")
-brkb_shr_buybacks_analysis(st_parent)
+income <- brkb_operatingincome(st_parent)
 
+load(file = "./data/BRKB_statements.RData")
+source("./scripts/functions/brkb_analysis_functions.R")
+brkb_shr_buybacks_analysis(st_all)
+brkb_shr_buybacks_analysis(st_parent)
+plot(income$ProfitLoss - income$GainLossOnInvestments)
 

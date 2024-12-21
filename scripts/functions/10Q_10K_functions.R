@@ -21,33 +21,33 @@ download_file <- function(url){
   return(webdata)
 }
 
-edgar_timeseries_10q <- function(){
-  # 1.) obtain CIK
-  # 2.) download 10-Q and 10-K links
-  # 3.) For each 10)Q form, download xbrl instance and xbrl schema
-  # 4.) parse tables from xbrl instance into csv file
-  # 5.) extract individual tables (income statement and balance sheet) from csv file, maintain hierarchy
-  # 6.) join the same table from from different filings over time to create a time series
-  
-  cik <- "0001067983"
-  type <- "10-Q"
-  filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
-  browser()
-  filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-  xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[1], verbose = TRUE))
-  # xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
-  # xml_filename <- "xbrl/brka-20240630_htm.xml"
-  #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
-  csv_filename <- "xbrl/brka-20240630_htm.csv"
-
-  # parse xbrl files
-  xbrl <- parse_xbrl_new(xml_filenames, cache_dir = "xbrl/cache/")
-  #a_xbrl <- xbrl_tables_with_arelle(xml_filename)
-  #browser()
-  xbrl$fact <- remove_duplicated_facts(xbrl$fact)
-  statement <- xbrl_statement(xbrl)
-  # 
-}
+# edgar_timeseries_10q <- function(){
+#   # 1.) obtain CIK
+#   # 2.) download 10-Q and 10-K links
+#   # 3.) For each 10)Q form, download xbrl instance and xbrl schema
+#   # 4.) parse tables from xbrl instance into csv file
+#   # 5.) extract individual tables (income statement and balance sheet) from csv file, maintain hierarchy
+#   # 6.) join the same table from from different filings over time to create a time series
+#   
+#   cik <- "0001067983"
+#   type <- "10-Q"
+#   filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
+#   browser()
+#   filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
+#   xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[1], verbose = TRUE))
+#   # xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
+#   # xml_filename <- "xbrl/brka-20240630_htm.xml"
+#   #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
+#   csv_filename <- "xbrl/brka-20240630_htm.csv"
+# 
+#   # parse xbrl files
+#   xbrl <- parse_xbrl_new(xml_filenames, cache_dir = "xbrl/cache/")
+#   #a_xbrl <- xbrl_tables_with_arelle(xml_filename)
+#   #browser()
+#   xbrl$fact <- remove_duplicated_facts(xbrl$fact)
+#   statement <- xbrl_statement(xbrl)
+#   # 
+# }
 
 edgar_link_to_filings <- function(cik, form = "10-Q"){
   # Given a CIK, it gets links to the SEC filings of the specified form for all periods available,
@@ -220,7 +220,7 @@ xbrl_tables_with_arelle <- function(xml_file){
 
 parse_xbrl <- function(xbrl_files, cache_dir = "xbrl_cache/"){
   # this uses the XBRL package to parse XBRL and create relevant tables
-  # it checks if all xbrl schemas are dwonloaded, and if not will do so and store in cache dir
+  # it checks if all xbrl schemas are downloaded, and if not will do so and store in cache dir
   # parse xml files as well as all schemas and joins them
   # uses XBRL package for R
   # browser()
