@@ -134,7 +134,7 @@ edgar_timeseries_10q()
 
 source("./scripts/functions/brkb_analysis_functions.R")
 # sink(file=paste0(Sys.Date(), ".log"))
-brkb_statements(form = "10-K", years = 13)
+brkb_statements(form = "10-K", years = 15)
 brkb_statements(form = "10-Q", years = 13)
 
 # sink()

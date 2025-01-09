@@ -1,7 +1,8 @@
 # https://www.sec.gov/data-research/sec-markets-data/form-n-port-data-sets
 # quarterly sec filings with holdings from all S mutual funds
 
-
+# still need to build a function that removes half year numbers for income statement, and calculate Q4 numbers.
+# and joins 10Q as well as 10K
 
 brkb_statements <- function(form = "10-Q", years = 13){
   # 1.) obtain CIK
@@ -46,9 +47,11 @@ brkb_statements <- function(form = "10-Q", years = 13){
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
                                  lbase = "presentation",
                                  complete_first = FALSE, 
-                                 end_of_quarter = TRUE,
+                                 end_of_quarter = FALSE,
                                  basic_contexts = FALSE,
-                                 nonzero_only = TRUE)
+                                 nonzero_only = TRUE,
+                                 regular_sec_reporting_periods = TRUE,
+                                 nr_periods = 2)
                                  
     if (i == 1){
       st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
@@ -108,8 +111,10 @@ brkb_statements <- function(form = "10-Q", years = 13){
       if (sum(different_names) > 0){
         st_all_i <- compare_statement_names(st_all, st_all_i)
       }
-      st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE)
-      st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE)
+      st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
+                                    remove_dupes = TRUE, keep_first = TRUE)
+      st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE,
+                                 remove_dupes = TRUE, keep_first = TRUE)
       if (add_is2){
         st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_parent
         st_all[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_all
@@ -135,6 +140,8 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   # if missing for all BU, but not parent, should stay missing. 
   # need to track here which observations. Which variable meet these requirements?
   #browser()
+  if (class(st)[1] == "WB error") return(st)
+  
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
                "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", 
                "us-gaap:CargoAndFreightMember", "brka:FinanceAndFinancialProductsMember")

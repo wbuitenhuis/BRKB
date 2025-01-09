@@ -199,16 +199,84 @@ xbrl_get_data <- function(elements, xbrl_vars,
   return(res)
 }
 
+# returns the end of quaerter dates in a vector of dates
 quarters <- function(dates){
   
   range <- c(min(dates), max(dates))
   years <- as.integer(stringr::str_sub(range, 1, 4))
   years[2] <- years[2] + 1
-  quarters <- seq.Date(from = as.Date(paste(years[1], "-01-01", sep = "")), 
+  quarters <- try(seq.Date(from = as.Date(paste(years[1], "-01-01", sep = "")), 
                            to = as.Date(paste(years[2], "-12-31", sep = "")), 
-                           by = "quarter")
+                           by = "quarter"))
   quarters <- quarters - lubridate::days(1)
   return(quarters)
+}
+
+# Need to know if it is an annual or quarterly report
+# Need to know which quarter, if quarterly report
+# From these two facts determine if relevant periods are:
+# 1.) full year, or 2.) Last quarter and year to date. Calculate year to date as well.
+# Check number of observations for 1.) or 2.). Select 1.) or 2.)
+# current approach does not work if reporting year is not a calendar year
+# also may have issues with new companies after ipo
+relevant_periods <- function(startDt, endDt){
+  # for balance sheet, no starting dates, for 10K current period and previous year
+  # for 10Q current quarter, start of year
+  # for income statement and comprehensive income, 10K two periods, current year and previous year
+  # 10 Q current quarter, current quarter last year, ytd, and ytd previous year.
+  # for cash flow statements: 10K 10K two periods, current year and previous year
+  # for 10Q also two periods: YTD and YTD previous year
+  # Approach is to find this quarter, last quarter, ytd, this quarter previous year, ytd last year,
+  # next check which of those are in startDt and endDt, and sort by frequency, pick n
+  startDt <- as.Date(startDt)
+  endDt <- as.Date(endDt)
+  dates <- data.frame(startDt = startDt, endDt = endDt)
+  gs <- dates |> dplyr::group_by(startDt, endDt) |> summarise(n = dplyr::n()) |> 
+    dplyr::arrange(dplyr::desc(n), dplyr::desc(endDt), dplyr::desc(startDt))
+  if (sum(is.na(startDt)) == length(startDt)){
+    # no start dates - has to be balance sheet
+    statement <- "BS"
+  } else {
+    statement <- "other"
+  }
+  gs$year <- lubridate::year(as.Date(gs$endDt))
+  gs$month <- lubridate::month(as.Date(gs$endDt))
+ 
+  i.year <- which.max(gs$year[1:min(nrow(gs), 4)])
+  year <- gs$year[i.year[1]]
+  month <- max(gs$month[i.year])
+    
+  endofquarter <- 
+    lubridate::ceiling_date(as.Date(paste0(year, "-", month, "-01")), 
+                            "month") - lubridate::days(1)
+  startofquarter <- lubridate::floor_date(endofquarter, "quarter")
+  
+  periods <- data.frame(startDt = as.Date("1900-01-01"), 
+                        endDt = as.Date("1900-01-01"))
+  periods <- rbind(periods, c(NA, endofquarter))
+  periods <- rbind(periods, c(NA, as.Date(paste0(year-1,"-12-31"))))
+  periods <- rbind(periods, c(startofquarter, endofquarter))
+  periods <- rbind(periods, c(as.Date(paste0(year, "-01-01")), endofquarter)) #YTD
+  oneyear <- data.frame(startDt = rep(lubridate::years(1), 2), 
+                        endDt = rep(lubridate::years(1), 2))
+  periods <- rbind(periods, periods[4:5, ] - oneyear)
+  
+  periods <- periods[-1, ]
+  if (statement != "BS"){
+    periods <- periods[-2:-1, ]
+  }
+  # check if date pairs are in original date
+  res <- dplyr::inner_join(periods, gs, by = colnames(periods))
+  #check <- dplyr::inner_join(res, gs[1:nrow(res), ], by = colnames(res))
+  #if (nrow(check) != nrow(res)) browser()
+    # did not take most frequent date combo - this is unexpected. Need to verify
+  res <- res |> dplyr::arrange(dplyr::desc(endDt), desc(startDt))
+  res <- res[,c("startDt", "endDt")]
+  res <- apply(res, 2, as.character)
+  if (class(try(res[, "startDt"])) == "try-error") browser()
+  #browser()
+  res <- data.frame(res)
+  return(res)
 }
 
 last_char_is_num <- function(string){
@@ -218,7 +286,7 @@ last_char_is_num <- function(string){
   is_last_digit <- last_char |>
     stringr::str_detect("[:digit:]")
   is_2nd_to_last_digit <-  second_to_last  |>
-    stringr::str_detect("[:digit:]")
+    stringr::str_detect("[:digit:]{4}-[:digit:]{2}-[:digit:]{2}")
   return(is_last_digit & !is_2nd_to_last_digit)
 }
 
@@ -232,7 +300,9 @@ last_char_is_num <- function(string){
 #' @export
 xbrl_get_data_WB <- function(elements, xbrl_vars, 
                           complete_only = FALSE, complete_first = TRUE, 
-                          basic_contexts = TRUE, nr_periods = 1, end_of_quarter = TRUE,
+                          basic_contexts = TRUE, nr_periods = 1, 
+                          end_of_quarter = FALSE, 
+                          regular_sec_reporting_periods = TRUE,
                           nonzero_only = FALSE,
                           aggregate_over_period_and_entity = TRUE,
                           filter_members = FALSE) {
@@ -246,7 +316,11 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
   res <-
     elements |>
     dplyr::inner_join(xbrl_vars$fact, by = "elementId")
-  
+  if (nrow(res) == 0){
+    ret <- "no matching facts in elements"
+    class(ret) = "try-error"
+    return(ret)
+  }  
   # this filter does not work for Berkshire income statement
   min_level <- min(res$level, na.rm = TRUE)
   min_dec <- min(as.numeric(res$decimals), na.rm = TRUE)
@@ -267,30 +341,43 @@ xbrl_get_data_WB <- function(elements, xbrl_vars,
     dplyr::inner_join(xbrl_vars$context, by = "contextId")
   
   # work to filter non relevant reporting periods
-  gs <- res |> dplyr::group_by(startDate, endDate) |> summarise(n = dplyr::n())
-  startDates <- unique(gs$startDate)
-  endDates <- unique(gs$endDate)
-  gs$dates <- paste(gs$startDate, gs$endDate)
-  res$dates <- paste(res$startDate, res$endDate)
-  ind <- match(res$dates, gs$dates)
-  res$n <- gs$n[ind]
-  res$date <- as.Date(res$endDate)
-  if (end_of_quarter){
-    filter_quarters <- quarters(res$date)
-    filter_quarters <- filter_quarters[filter_quarters %in% c(startDates, endDates)]
+  # Need to know if it is an annual or quarterly report
+  # Need to know which quarter, if quarterly report
+  # From these two facts determine if relevant periods are:
+  # 1.) full year, or 2.) Last quarter and year to date. Calculate year to date as well.
+  # Check number of observations for 1.) or 2.). Select 1.) or 2.)
+  
+  # browser()
+  if (regular_sec_reporting_periods){
+    periods <- relevant_periods(res$startDate, res$endDate)
+    periods_filter <- paste(periods[, "startDt"], periods[, "endDt"])
+    nr_periods <- min(nr_periods, length(periods_filter))
+    periods_filter <- periods_filter[1:nr_periods]
+    res$filter_by <- paste(res$startDate, res$endDate)
+    res <- res |> dplyr::filter(filter_by %in% periods_filter)
   } else {
-    filter_quarters <- unique(res$date)
+    gs <- res |> dplyr::group_by(startDate, endDate) |> summarise(n = dplyr::n())
+    gs$dates <- paste(gs$startDate, gs$endDate)
+    res$dates <- paste(res$startDate, res$endDate)
+    ind <- match(res$dates, gs$dates)
+    res$n <- gs$n[ind]
+    res$date <- as.Date(res$endDate)
+    if (end_of_quarter){
+      filter_quarters <- quarters(res$date)
+      filter_quarters <- filter_quarters[filter_quarters %in% c(startDates, endDates)]
+    } else {
+      filter_quarters <- unique(res$date)
+    }
+    res$periodLength <- as.numeric(res$date - as.Date(res$startDate))
+    res$periodLength <- sprintf("%03d", as.numeric(res$periodLength)) # add leading zeros
+    res <- res |> dplyr::arrange(dplyr::desc(endDate), periodLength, dplyr::desc(n))
+    #res$filter_by <- paste(res$endDate, res$PeriodLength, res$n)
+    res <- res |> dplyr::filter(date %in% filter_quarters)
+    res$filter_by <- paste(res$endDate, res$periodLength)
+    nr_periods <- min(nr_periods, length(unique(res$filter_by)))
+    dates_filter <- unique(res$filter_by)[1:nr_periods]
+    res <- res |> dplyr::filter(filter_by %in% dates_filter)
   }
-  #browser()
-  res$periodLength <- as.numeric(res$date - as.Date(res$startDate))
-  res$periodLength <- sprintf("%03d", as.numeric(res$periodLength)) # add leading zeros
-  res <- res |> dplyr::arrange(dplyr::desc(endDate), periodLength, dplyr::desc(n))
-  #res$filter_by <- paste(res$endDate, res$PeriodLength, res$n)
-  res <- res |> dplyr::filter(date %in% filter_quarters)
-  res$filter_by <- paste(res$endDate, res$periodLength)
-  nr_periods <- min(nr_periods, length(unique(res$filter_by)))
-  dates_filter <- unique(res$filter_by)[1:nr_periods]
-  res <- res |> dplyr::filter(filter_by %in% dates_filter)
   res <- res |>
     dplyr::select(contextId, startDate, endDate, elementId, fact, decimals, value1)
   res <- res |> tidyr::pivot_wider(names_from = "elementId", values_from = "fact") 
@@ -589,8 +676,10 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
                                 role_ids = NULL,
                                 lbase = "calculation",
                                 basic_contexts = TRUE,
+                                filter_members = FALSE,
+                                regular_sec_reporting_periods = TRUE,
                                 end_of_quarter = FALSE,
-                                filter_members = FALSE)  {
+                                nr_periods = 1)  {
   
   # xbrl is parsed xbrl
   if( !all( c("role", "calculation", "fact", "context", "element") %in% names(xbrl_vars))) {
@@ -637,7 +726,13 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
           res <- xbrl_get_data_WB(elements, xbrl_vars, 
                                complete_only = complete_only, complete_first = complete_first,
                                basic_contexts = basic_contexts, end_of_quarter = end_of_quarter, 
-                               filter_members = filter_members)
+                               filter_members = filter_members, nr_periods = nr_periods,
+                               regular_sec_reporting_periods = regular_sec_reporting_periods)
+          if (class(res)[1] == "try-error"){
+            res <- "error"
+            class(res) <- "WB error"
+            return(res)
+          }
           # delete taxonomy prefix
           names(res) <- gsub(taxonomy_prefix, "", names(res))          
           links$fromElementId <- gsub(taxonomy_prefix, "", links$fromElementId)          
@@ -654,6 +749,7 @@ xbrl_get_statements_WB <- function(xbrl_vars, rm_prefix = "us-gaap_",
       basename(role_ids)
     )
   class(statements) <- c("statements", "list")
+  # statements <- Filter(Negate(is.null), statements)
   return(statements)
 }
 
@@ -901,6 +997,14 @@ compare_element_names <- function(x, y){
     } else {
       test_passed <- TRUE
     }
+  } else if (length(num_y) > length(num_x)){
+    alt_elements <- stringr::str_sub(y, end = -2)
+    if (sum(num_y %in% alt_elements) > 0){
+      test_passed <- FALSE
+      browser()
+    } else {
+      test_passed <- TRUE
+    }
   } else {
     browser()
   }
@@ -928,7 +1032,8 @@ compare_element_names <- function(x, y){
 #' @param ... further arguments passed to or from other methods
 #' @return statement object
 #' @export
-merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) {
+merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, 
+                            keep_first = TRUE,...) {
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
     stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
   }
@@ -973,7 +1078,9 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
     }
     if (remove_dupes){
       # remove duplicated rows (based on periods)
-      z <- z[!duplicated(z[c("endDate")], fromLast = TRUE), ]
+      # if fromLast = FALSE, will drop last duplicated observation, will keep first
+      # if fromLast = TRUE, will drop first duplicated observation, will keep last
+      z <- z[!duplicated(z[c("endDate")], fromLast = !keep_first), ]
     }
     # order rows by endDate
     z <- z[order(z$endDate), ]
@@ -1013,8 +1120,11 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, ...) 
 #' @return statements object
 #' @seealso \link{merge.statement} for merging two statements
 #' @export
-merge.statements <- function(x, y, replace_na = TRUE, ...) {
-
+merge.statements <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, 
+                             keep_first = TRUE,...) {
+  if (class(x)[1] == "WB error") return(y)
+  if (class(y)[1] == "WB error") return(x)
+  
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
       stop("Not statements objects")
   }
@@ -1025,7 +1135,8 @@ merge.statements <- function(x, y, replace_na = TRUE, ...) {
   
   z <-
       lapply(names(x), function(statement){
-        merge.statement(x[[statement]], y[[statement]], replace_na = replace_na, ...)
+        merge.statement(x[[statement]], y[[statement]], replace_na = replace_na, 
+                        remove_dupes = remove_dupes, keep_first = keep_first, ...)
       })
     names(z) <- names(y)
   class(z) <- "statements"

@@ -125,6 +125,11 @@ edgar_xbrl_URLs <- function(url, verbose = FALSE){
   date_str <- date_str[is_date & is_htm]
   filename_xml <- filename[is_date & is_xml]
   filename_xsd <- filename[is_date & is_xsd]
+  if (length(filename_xml) == 0){
+    # there are no kml files
+    print(there are no XML files.)
+    return()
+  }
   url_xml <- paste0("https://www.sec.gov", form_link_xml)
   url_xsd <- paste0("https://www.sec.gov", form_link_xsd)
   ret <- c(url_xml, url_xsd)
@@ -247,7 +252,8 @@ parse_xbrl <- function(xbrl_files, cache_dir = "xbrl_cache/"){
       xbrl_file <- xbrl_file |> httr::content("text", encoding = "UTF-8")
       write(xbrl_file, paste0(cache_dir, xbrl_name))
     }
-    xbrl_l[[i]] <- XBRL::xbrlParse(paste0(cache_dir, xbrl_name))
+    xbrl_l[[i]] <- try(XBRL::xbrlParse(paste0(cache_dir, xbrl_name)))
+    if ("try-error" %in% class(xbrl_l[[i]])) browser()
     importnames <- XBRL::xbrlGetImportNames(xbrl_l[[i]])
     importnames <- importnames[!(importnames %in% xbrl_files)]
     keep <- stringr::str_sub(importnames,1,8) == "https://" | stringr::str_sub(importnames,1,7) == "http://"
@@ -382,7 +388,17 @@ compare_statement_names <- function(x, y){
   if (length(x) != length(y)){
     stop("statements objects are not of same length")
   }
+  # if one statement is missing assign it the value fo the statement to be merged
+  if ("WB error" %in% lapply(x, class) |> unlist() |> unique()){
+    ind <- which(lapply(x, class) == "WB error")
+    x[[ind]] <- y[[ind]]
+  }
+  if ("WB error" %in% lapply(y, class) |> unlist() |> unique()){
+    ind <- which(lapply(y, class) == "WB error")
+    y[[ind]] <- x[[ind]]
+  }
   
+    
   # Define a function to count common elements
   perc_common_elements <- function(df1, df2) {
     # Find common elements in the first variable
