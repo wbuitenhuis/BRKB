@@ -4,7 +4,7 @@
 # still need to build a function that removes half year numbers for income statement, and calculate Q4 numbers.
 # and joins 10Q as well as 10K
 
-brkb_statements <- function(form = "10-Q", years = 13){
+brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statements"){
   # 1.) obtain CIK
   # 2.) download 10-Q and 10-K links
   # 3.) For each 10)Q form, download xbrl instance and xbrl schema
@@ -23,8 +23,8 @@ brkb_statements <- function(form = "10-Q", years = 13){
   }
   add_is2 <- TRUE
   # needed to update existing file
-  if (file.exists("./data/BRKB_statements.RData")){
-    load("./data/BRKB_statements.RData")
+  if (file.exists(paste0("./data/", filename, ".RData"))){
+    load(paste0("./data/", filename, ".RData"))
   }
   object_names <- c("st_all_10Q", "st_parent_10Q", "st_all_10K", "st_parent_10K")
   for (i in 1:length(object_names)){
@@ -39,6 +39,9 @@ brkb_statements <- function(form = "10-Q", years = 13){
     if (nchar(filing_urls[i]) < 5 | is.na(filing_urls[i])) browser()
     xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[i]),
                                      verbose = TRUE)
+    if ("WB error" %in% class(xml_filenames)){
+      next
+    }
     print(paste("i = ", i, "XML file:", xml_filenames[1]))
     
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
@@ -52,7 +55,9 @@ brkb_statements <- function(form = "10-Q", years = 13){
                                  nonzero_only = TRUE,
                                  regular_sec_reporting_periods = TRUE,
                                  nr_periods = 2)
-                                 
+    # browser() 
+    remove_error_p <- FALSE
+    remove_error_a <- FALSE
     if (i == 1){
       st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
       st_all <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = FALSE)
@@ -63,6 +68,27 @@ brkb_statements <- function(form = "10-Q", years = 13){
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
       st_all_i <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = TRUE)
       class(st_parent_i) <- class(st_all_i) <- "statements"
+      if ("WB error" %in% lapply(st_parent_i, class)){
+        #browser()
+        remove_error_p <- TRUE
+        ind_error_p <- sapply(st_parent_i, function(x) "WB error" %in% class(x))
+        remove_p_i <-  st_parent_i[ind_error_p]
+        remove_p <- st_parent[ind_error_p]
+        #names(st_parent_i) <- names(st_parent)
+        st_parent_i <- st_parent_i[!ind_error_p]
+        st_parent <- st_parent[!ind_error_p]
+        class(st_parent_i) <- class(st_parent) <- "statements"
+      } 
+      if ("WB error" %in% lapply(st_all_i, class)){
+        remove_error_a <- TRUE
+        ind_error_a <- sapply(st_all_i, function(x) "WB error" %in% class(x))
+        remove_a_i <- st_all_i[ind_error_a]
+        remove_a <-  st_all[ind_error_a]
+        # names(st_all_i) <- names(st_all)
+        st_all_i <- st_all_i[!ind_error_a]
+        st_all <- st_all[!ind_error_a]
+        class(st_all_i) <- class(st_all) <- "statements"
+      } 
       if (length(st_parent_i) > n_parent){
          if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent_i)){
            add_is2 <- TRUE
@@ -88,7 +114,7 @@ brkb_statements <- function(form = "10-Q", years = 13){
           IS2_parent <- st_parent[["StatementConsolidatedStatementsOfEarnings2"]]
           st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- NULL
         } else {
-          browser()
+          # browser()
         }
         # statements2excel(st_parent_i)
       }
@@ -98,11 +124,9 @@ brkb_statements <- function(form = "10-Q", years = 13){
           IS2_all <- st_all[["StatementConsolidatedStatementsOfEarnings2"]]
           st_all[["StatementConsolidatedStatementsOfEarnings2"]] <- NULL
         } else {
-          browser()
+          # browser()
         }
       }
-      if (isFALSE("statement" %in% class(st_parent_i[[1]]))) browser()
-      if (isFALSE("statement" %in% class(st_parent[[1]]))) browser()
       different_names <- names(st_parent) != names(st_parent_i)
       if (sum(different_names) > 0){
         st_parent_i <- compare_statement_names(st_parent, st_parent_i)
@@ -111,6 +135,7 @@ brkb_statements <- function(form = "10-Q", years = 13){
       if (sum(different_names) > 0){
         st_all_i <- compare_statement_names(st_all, st_all_i)
       }
+      
       st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
                                     remove_dupes = TRUE, keep_first = TRUE)
       st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE,
@@ -118,6 +143,26 @@ brkb_statements <- function(form = "10-Q", years = 13){
       if (add_is2){
         st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_parent
         st_all[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_all
+      }
+      if (remove_error_p){
+        ind_error_p <- which(ind_error_p)
+        for (j in 1:length(ind_error_p)){
+          st_parent_i <- append(st_parent_i, remove_p_i[j], 
+                                after = ind_error_p[j]-1)
+          st_parent <- append(st_parent, remove_p[j], 
+                                after = ind_error_p[j]-1)
+          class(st_parent_i) <- class(st_parent) <- "statements"
+        }
+      }
+      if (remove_error_a){
+        ind_error_a <- which(ind_error_a)
+        for (j in 1:length(ind_error_p)){
+          st_all_i <- append(st_all_i, remove_a_i[j], 
+                             after = ind_error_a[j]-1)
+          st_all <- append(st_all, remove_a[j], 
+                             after = ind_error_a[j]-1)
+        }
+        class(st_all_i) <- class(st_all) <- "statements"
       }
     }
     add_is2 <- FALSE
@@ -131,7 +176,7 @@ brkb_statements <- function(form = "10-Q", years = 13){
     n_parent <- length(st_parent)
     n_all <- length(st_all)
     save(st_all_10Q, st_parent_10Q, st_all_10K, st_parent_10K,
-         file = "./data/BRKB_statements.RData")
+         file = paste0("./data/",filename, ".RData"))
   }
   print("Done")
 }
@@ -139,46 +184,77 @@ brkb_statements <- function(form = "10-Q", years = 13){
 clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   # if missing for all BU, but not parent, should stay missing. 
   # need to track here which observations. Which variable meet these requirements?
-  #browser()
-  if (class(st)[1] == "WB error") return(st)
+  # browser()
+  
+  # this currently assume there is only 1 period. 
+  # Needs to amend for multiperiods in 1 statement.
+  # best to break statement up in sub statements for each period.
+  # apply function to each sub statement
+  # aggregate statements in last step.
+  
+  
+  clean_statement <- function(st){
+    if (nrow(st) > 1){
+      desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
+      value_cols <- colnames(st)
+      value_cols <- value_cols[!(value_cols %in% desc_vars)]
+      st_pa <- st |> dplyr::filter(is.na(value1))
+      members <- members[!is.na(members)]
+      st_bu <- st |> dplyr::filter(value1 %in% members)
+      empty_cols_pa <- sapply(
+        st_pa, function(x) length(stats::na.omit(x))==0 
+      )
+      empty_cols_pa[desc_vars] <- FALSE
+      not_empty_cols_pa <- !empty_cols_pa |> as.vector()
+      empty_cols_bu <- sapply(
+        st_bu, function(x) length(stats::na.omit(x))==0 
+      )
+      st_bu[is.na(st_bu)] <- 0
+      if (nrow(st_bu) > 0){
+        st_bu[,empty_cols_bu & not_empty_cols_pa] <- NA
+        st_bu_total <- st_bu |>
+          dplyr::filter(value1 %in% c("brka:InsuranceAndOtherMember", 
+                                      "brka:RailroadUtilitiesAndEnergyMember")) |> 
+          dplyr::summarise(dplyr::across(value_cols, \(x) sum(x, na.rm = TRUE)))
+        ind <- which(empty_cols_pa) - length(desc_vars)
+        st_pa[, empty_cols_pa] <- st_bu_total[, ind]  
+        st <- rbind(st_bu, st_parent = st_pa)
+      } 
+      if (parent_only){
+        st <- st_pa  
+      } 
+    }
+    return(st)
+  }
   
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
                "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", 
                "us-gaap:CargoAndFreightMember", "brka:FinanceAndFinancialProductsMember")
+  
+  if (class(st)[1] == "WB error") return(st)
   if (filter){
+    st_temp <- st# can remove is for debugging
     st <- st |> dplyr::filter(value1 %in% members)  
   }
-
-  if (nrow(st) > 1){
-    desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
-    value_cols <- colnames(st)
-    value_cols <- value_cols[!(value_cols %in% desc_vars)]
-    st_pa <- st |> dplyr::filter(is.na(value1))
-    members <- members[!is.na(members)]
-    st_bu <- st |> dplyr::filter(value1 %in% members)
-    empty_cols_pa <- sapply(
-      st_pa, function(x) length(stats::na.omit(x))==0 
-    )
-    empty_cols_pa[desc_vars] <- FALSE
-    not_empty_cols_pa <- !empty_cols_pa |> as.vector()
-    empty_cols_bu <- sapply(
-      st_bu, function(x) length(stats::na.omit(x))==0 
-    )
-    st_bu[is.na(st_bu)] <- 0
-    if (nrow(st_bu) > 0){
-      st_bu[,empty_cols_bu & not_empty_cols_pa] <- NA
-      st_bu_total <- st_bu |>
-        dplyr::filter(value1 %in% c("brka:InsuranceAndOtherMember", 
-                                    "brka:RailroadUtilitiesAndEnergyMember")) |> 
-        dplyr::summarise(dplyr::across(value_cols, \(x) sum(x, na.rm = TRUE)))
-      ind <- which(empty_cols_pa) - length(desc_vars)
-      st_pa[, empty_cols_pa] <- st_bu_total[, ind]  
-      st <- rbind(st_bu, st_parent = st_pa)
-    }
-    if (parent_only){
-      st <- st_pa  
-    } 
-  }
+  if (nrow(st) == 0){
+    ret <- "no valid observations after applying member filter"
+    class(ret) <- "WB error"
+    return(ret)
+  } 
+  periodID <- paste(st$startDate, st$endDate)
+  st_l <- split(st, periodID)
+  st_l <- lapply(st_l, clean_statement)
+  if (lapply(st_l, is.null) |> unlist() |> sum() > 0){
+    # debuging code, may erase
+    browser()
+    st_l <- split(st, periodID)
+    debugonce(clean_statement)
+    st_l <- lapply(st_l, clean_statement)
+  } 
+  st <- do.call(rbind, st_l)
+  if (is.null(st)) browser()
+  # browser()
+  
   return(st)
 }
 
@@ -193,9 +269,9 @@ run_brkb_bu_analysis <- function(st){
   library(xts)
   browser()
   is <- st[[2]]
-  is <- is[,-(1:2)]
+  is <- is[,-1]
   is$endDate <- as.Date(is$endDate)
-  is <- is |> group_by(endDate, value1) |> summarise(across(everything(), sum))
+  is <- is |> group_by(startDate, endDate, value1) |> summarise(across(everything(), sum))
   ins <- is |> filter(value1 %in% c("brka:InsuranceAndOtherMember", "brka:FinanceAndFinancialProductsMember"))
   ins <- ins |> select_if(~ any(!is.na(.)) & any(. != 0))
   

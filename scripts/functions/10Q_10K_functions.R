@@ -21,34 +21,6 @@ download_file <- function(url){
   return(webdata)
 }
 
-# edgar_timeseries_10q <- function(){
-#   # 1.) obtain CIK
-#   # 2.) download 10-Q and 10-K links
-#   # 3.) For each 10)Q form, download xbrl instance and xbrl schema
-#   # 4.) parse tables from xbrl instance into csv file
-#   # 5.) extract individual tables (income statement and balance sheet) from csv file, maintain hierarchy
-#   # 6.) join the same table from from different filings over time to create a time series
-#   
-#   cik <- "0001067983"
-#   type <- "10-Q"
-#   filing_urls <- edgar_link_to_filings(cik = cik, form = "10-Q")
-#   browser()
-#   filing_urls <- "/Archives/edgar/data/1067983/000095017024090305/0000950170-24-090305-index.htm"
-#   xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[1], verbose = TRUE))
-#   # xml_filename <- download_edgar_xbrlfiles(paste0("https://www.sec.gov", filing_urls[1]), "xbrl/") # can create a for loop later for all filing urls
-#   # xml_filename <- "xbrl/brka-20240630_htm.xml"
-#   #csv_filename <- save_xbrl_tables_with_arelle(xml_file = xml_filename)
-#   csv_filename <- "xbrl/brka-20240630_htm.csv"
-# 
-#   # parse xbrl files
-#   xbrl <- parse_xbrl_new(xml_filenames, cache_dir = "xbrl/cache/")
-#   #a_xbrl <- xbrl_tables_with_arelle(xml_filename)
-#   #browser()
-#   xbrl$fact <- remove_duplicated_facts(xbrl$fact)
-#   statement <- xbrl_statement(xbrl)
-#   # 
-# }
-
 edgar_link_to_filings <- function(cik, form = "10-Q"){
   # Given a CIK, it gets links to the SEC filings of the specified form for all periods available,
   # as long as total number of links is not more than 100
@@ -126,9 +98,10 @@ edgar_xbrl_URLs <- function(url, verbose = FALSE){
   filename_xml <- filename[is_date & is_xml]
   filename_xsd <- filename[is_date & is_xsd]
   if (length(filename_xml) == 0){
-    # there are no kml files
-    print(there are no XML files.)
-    return()
+    print("There are no XML files.")
+    ret <- "There are no XML files."
+    class(ret) <- "WB error"
+    return(ret)
   }
   url_xml <- paste0("https://www.sec.gov", form_link_xml)
   url_xsd <- paste0("https://www.sec.gov", form_link_xsd)
@@ -385,7 +358,18 @@ compare_statement_names <- function(x, y){
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
       stop("Not statements objects")
   }
-  if (length(x) != length(y)){
+  if (length(x) < length(y)){
+    if (sum(names(x) %in% names(y)) == length(x)){
+      # we are good
+      return(y)
+    }
+    stop("statements objects are not of same length")
+  }
+  if (length(x) > length(y)){
+    if (sum(names(y) %in% names(x)) == length(y)){
+      # we are good
+      return(y)
+    }
     stop("statements objects are not of same length")
   }
   # if one statement is missing assign it the value fo the statement to be merged
@@ -430,7 +414,7 @@ compare_statement_names <- function(x, y){
     return(y)
   } else if (sum(ind) == length(x) - 1){
     # only one name difference
-    browser()
+    # browser()
     names(y)[!ind] <- names(x)[!(names(x) %in% names(y))]
   } else {
     # multiple name differences

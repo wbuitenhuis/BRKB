@@ -133,9 +133,14 @@ source("./scripts/functions/10Q_10K_functions.R")
 edgar_timeseries_10q()
 
 source("./scripts/functions/brkb_analysis_functions.R")
-# sink(file=paste0(Sys.Date(), ".log"))
+# # sink(file=paste0(Sys.Date(), ".log"))
+#brkb_statements(form = "10-K", years = 2, filename = "test2y")
+# rm(list = ls())
+#load(file = "./data/test2y.RData")
+
+source("./scripts/functions/brkb_analysis_functions.R")
 brkb_statements(form = "10-K", years = 15)
-brkb_statements(form = "10-Q", years = 13)
+brkb_statements(form = "10-Q", years = 15)
 
 # sink()
 print("done")
