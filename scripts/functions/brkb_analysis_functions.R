@@ -135,7 +135,7 @@ brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statemen
       if (sum(different_names) > 0){
         st_all_i <- compare_statement_names(st_all, st_all_i)
       }
-      
+      #browser()
       st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
                                     remove_dupes = TRUE, keep_first = TRUE)
       st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE,
@@ -356,6 +356,7 @@ run_brkb_bu_analysis <- function(st){
   leasing <- xts(x = leasing[,3:4], order.by = leasing$endDate)
   names(leasing) <- c("LeaseIncome", "CostOfLeasing")
   
+  browser()
   service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
                     "RevenueFromContractWithCustomerIncludingAssessedTax", 
                     "RevenueFromContractWithCustomerExcludingAssessedTax", 

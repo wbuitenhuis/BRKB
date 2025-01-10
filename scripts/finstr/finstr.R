@@ -1080,16 +1080,11 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE,
       # remove duplicated rows (based on periods)
       # if fromLast = FALSE, will drop last duplicated observation, will keep first
       # if fromLast = TRUE, will drop first duplicated observation, will keep last
-      z <- z[!duplicated(z[c("endDate")], fromLast = !keep_first), ]
+      z <- z[!duplicated(z[c("startDate", "endDate", "value1")], fromLast = !keep_first), ]
     }
     # order rows by endDate
     z <- z[order(z$endDate), ]
     # order columns based on original taxonomy
-      # el_z[["elementId"]] is not necessarily unique - this creates problems.
-      # must have to do with earlier warning.
-      # need to fix.
-      # underlying cause seems to be that you can have the same element id with two different parent Id's
-      # I should check if this caused by difference of hierarchy of x and y
       if ("value1" %in% names(z)) desc_col <- 5
       else desc_col <- 4
       z <- z[ ,c(names(z)[1:desc_col], el_z[["elementId"]])] 
