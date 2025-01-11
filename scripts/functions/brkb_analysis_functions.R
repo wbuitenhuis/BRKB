@@ -357,6 +357,7 @@ run_brkb_bu_analysis <- function(st){
   names(leasing) <- c("LeaseIncome", "CostOfLeasing")
   
   browser()
+  # RevenueFromContractWithCustomerIncludingAssessedTax does not exists in 10K
   service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
                     "RevenueFromContractWithCustomerIncludingAssessedTax", 
                     "RevenueFromContractWithCustomerExcludingAssessedTax", 
