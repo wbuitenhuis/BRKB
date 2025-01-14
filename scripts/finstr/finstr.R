@@ -1032,7 +1032,7 @@ compare_element_names <- function(x, y){
 #' @param ... further arguments passed to or from other methods
 #' @return statement object
 #' @export
-merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE, 
+merge.statement <- function(x, y, replace_na = FALSE, remove_dupes = FALSE, 
                             keep_first = TRUE,...) {
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
     stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
@@ -1060,8 +1060,8 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE,
     browser()
   }
   
-  if(!any(names(x)[-(1:4)] %in% names(y)[-(1:4)])  ) {
-    #if same period and different statements
+  if(!any(names(x)[-(1:5)] %in% names(y)[-(1:5)])  ) {
+    # if same period and different statements
     col_pos <- which(names(y) %in% c("contextId", "startDate", "decimals"))
     z <- 
       x |>
@@ -1069,9 +1069,10 @@ merge.statement <- function(x, y, replace_na = TRUE, remove_dupes = FALSE,
     
   } else {
     # if same statement type and different periods
-    
-    z <- merge.data.frame(x, y, all = TRUE, ...)
-    # if (sum(last_char_is_num(names(z)[-5])) > 0 ) browser()
+    z <- suppressMessages(dplyr::full_join(x, y))
+    # dplyr::full_join prevents issues with merging 10Q and 10K merges.
+    # z <- merge.data.frame(x, y, by = intersect(names(x), names(y)), all = TRUE, ...)
+    # # if (sum(last_char_is_num(names(z)[-5])) > 0 ) browser()
     # replace NAs in values by zeros
     if(replace_na) {
       z[,5:ncol(z)][is.na(z[,5:ncol(z)])] <- 0

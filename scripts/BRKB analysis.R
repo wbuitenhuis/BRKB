@@ -154,24 +154,29 @@ load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
 run_brkb_is_analysis(st_all_10Q, st_all_10K)
 
+
 load(file = "./data/BRKB_income_bu.RData")
-plot(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses)
-plot(log(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses))
+make_plots <- function(data){
+  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses)
+  plot(log(data$InsPremiumsEarned - data$InsUnderwritingExpenses))
+  
+  plot(data$InsUnderwritingExpenses/data$InsPremiumsEarned)
+  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses - data$ClaimsPropertyLiability - data$PolicyHolderBenefits)
+  
+  plot(data$LeaseIncome - data$CostOfLeasing)
+  plot(data$CostOfLeasing/data$LeaseIncome)
+  plot(data$ServiceRevenue - data$CostOfServices)
+  plot(log(data$ServiceRevenue - data$CostOfServices))
+  
+  plot(data$CostOfServices / data$ServiceRevenue)
+  
+  plot(data$FreightRevenue - data$FreightCosts)
+  plot(data$FreightCosts / data$FreightRevenue)
+  plot(data$EnergyRevenue - data$EnergyCosts)
+  plot(data$EnergyCosts / data$EnergyRevenue)
+  
+} 
 
-plot(insurance$InsuranceUnderwritingExpenses/insurance$PremiumsEarnedNet)
-plot(insurance$PremiumsEarnedNet - insurance$InsuranceUnderwritingExpenses - insurance$IncurredClaimsPropertyCasualtyAndLiability -insurance$PolicyHolderBenefitAndClaimsIncured)
-
-plot(leasing$LeaseIncome - leasing$CostOfLeasing)
-plot(leasing$CostOfLeasing/leasing$LeaseIncome)
-plot(service$Revenue - service$CostOfGoodsAndServicesSold)
-plot(log(service$Revenue - service$CostOfGoodsAndServicesSold))
-
-plot(service$CostOfGoodsAndServicesSold/service$Revenue)
-
-plot(freight$Revenues - freight$OperatingExpenses)
-plot(freight$OperatingExpenses /freight$Revenues)
-plot(energy$Revenues-energy$OperatingExpenses)
-plot(energy$OperatingExpenses/energy$Revenues)
 
 income <- brkb_operatingincome(st_parent)
 

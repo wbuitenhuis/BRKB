@@ -272,9 +272,8 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     is <- is[,-1]
     is$endDate <- as.Date(is$endDate)
     is <- is |> group_by(startDate, endDate, value1) |> summarise(across(everything(), sum))
-    browser()
     ins <- is |> filter(value1 %in% c("brka:InsuranceAndOtherMember", "brka:FinanceAndFinancialProductsMember"))
-    ins <- ins |> select_if(~ any(!is.na(.)) & any(. != 0))
+    # ins <- ins |> select_if(~ any(!is.na(.)) & any(. != 0))
     
     rail <- is |> filter(value1 %in% c("brka:CargoAndFreightMember", 
                                        "us-gaap:CargoAndFreightMember"))
@@ -300,24 +299,45 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     
     # freight from 2019 to present, can merge these two data frames
     freight <- rail[,c("endDate", "value1", "Revenues", "OperatingExpenses")]
-    freight1 <- infra[, c("endDate", "value1", "brka_FreightRailTransportationRevenues", "OperatingExpenses")]
-    colnames(freight1) <- colnames(freight)
-    freight <- rbind(freight, freight1)
+    freight1 <- infra[, c("endDate", "value1", "brka_FreightRailTransportationRevenues", "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue",
+                          "OperatingExpenses")]
+    freight1$"brka_FreightRailTransportationRevenues" <- 
+      apply(freight1[, c("brka_FreightRailTransportationRevenues", 
+                         "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue")], 
+            1, sum, na.rm=TRUE)
+    freight1 <- freight1[, -4]
+    names(freight1) <- names(freight)
+    freight1 <- freight1 |> 
+      dplyr::filter(dplyr::if_any(c(Revenues, OperatingExpenses), ~ . != 0 & !is.na(.)))
+    freight <- rbind(freight, freight1) 
     freight <- freight[order(freight$endDate), ]
     # Remove rows where the entire row has only NA or 0 values
     freight <- freight[apply(freight[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
-    freight <- xts(x = freight[,3:4], order.by = freight$endDate)
+    freight <- freight[,-2]
+    names(freight) <- c("endDate", "FreightRevenue", "FreightCosts")
+    
+    # freight <- xts(x = freight[,3:4], order.by = freight$endDate)
     # more data on rail business here: 
     # https://www.sec.gov/Archives/edgar/data/15511/000001551118000005/bnsfrailway-12312017x10xk.htm#sAE294AC985E55CB8887B10681A4F9210
     # https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000015511&owner=include&count=40&hidefilings=0
     
     energy <- energy[,c("endDate", "value1", "RevenueFromContractWithCustomerExcludingAssessedTax", "brka_CostsOfServicesAndOperatingExpenses")]
-    energy1 <- infra[, c("endDate", "value1", "brka_FreightRailTransportationRevenues", "OperatingExpenses")]
+    energy1 <- infra[, c("endDate", "value1", "brka_UtilityAndEnergyOperatingRevenues", "brka_EnergyOperatingRevenues","OperatingExpenses")]
+    energy1$"brka_UtilityAndEnergyOperatingRevenues" <- 
+      apply(energy1[, c("brka_UtilityAndEnergyOperatingRevenues", 
+                        "brka_EnergyOperatingRevenues")], 
+            1, sum, na.rm=TRUE)
+    energy1 <- energy1[,-4]
     names(energy) <- names(energy1) <- c("endDate", "value1","Revenues","OperatingExpenses")
-    energy <- rbind(energy, energy1)
+    energy1 <- energy1 |> 
+      dplyr::filter(dplyr::if_any(c(Revenues, OperatingExpenses), ~ . != 0 & !is.na(.)))
+    
+    energy <- rbind(energy, energy1) # this can create duplicated rows
     energy <- energy[order(energy$endDate), ]
     energy <- energy[apply(energy[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
-    energy <- xts(x = energy[,3:4], order.by = energy$endDate)
+    energy <- energy[, -2]
+    names(energy) <- c("endDate", "EnergyRevenue", "EnergyCosts")
+    # energy <- xts(x = energy[,3:4], order.by = energy$endDate)
     
     insurance <- ins[, c("endDate", "value1", "PremiumsEarnedNet", 
                          "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
@@ -348,16 +368,24 @@ run_brkb_is_analysis <- function(st10Q, st10K){
                                "InsuranceUnderwritingExpenses",
                                "IncurredClaimsPropertyCasualtyAndLiability",
                                "PolicyHolderBenefitAndClaimsIncured")]
-    insurance <- xts(x = insurance[,-1], order.by = insurance$endDate)
-    
-    insurance1 <- insurance1[, c("endDate", "value1", "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")]
+    # insurance <- xts(x = insurance[,-1], order.by = insurance$endDate)
+    names(insurance) <- c("endDate", "InsPremiumsEarned", "InsUnderwritingExpenses", 
+                          "ClaimsPropertyLiability", "PolicyHolderBenefits")
+    insurance <- insurance |> 
+      dplyr::filter(dplyr::if_any(c(InsPremiumsEarned, 
+                                    InsUnderwritingExpenses, 
+                                  ClaimsPropertyLiability, 
+                                    PolicyHolderBenefits), ~ . != 0 & !is.na(.)))
+    insurance1 <- insurance1[, c("endDate", "value1", "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")] #what is the use of insurance1?
     
     leasing <- ins[,c("endDate", "value1","OperatingLeaseLeaseIncome", "brka_CostOfLeasing")]
     leasing <- leasing |> filter(value1 == "brka:InsuranceAndOtherMember")
-    leasing <- xts(x = leasing[,3:4], order.by = leasing$endDate)
-    names(leasing) <- c("LeaseIncome", "CostOfLeasing")
-    
-    browser()
+    # leasing <- xts(x = leasing[,3:4], order.by = leasing$endDate)
+    names(leasing) <- c("endDate", "value1", "LeaseIncome", "CostOfLeasing")
+    leasing <- leasing[,-2]
+    leasing <- leasing |> 
+      dplyr::filter(dplyr::if_any(c(LeaseIncome, CostOfLeasing),
+                                  ~ . != 0 & !is.na(.)))
     # RevenueFromContractWithCustomerIncludingAssessedTax does not exists in 10K
     service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
                       "RevenueFromContractWithCustomerIncludingAssessedTax", 
@@ -370,7 +398,11 @@ run_brkb_is_analysis <- function(st10Q, st10K){
                                          "RevenueFromContractWithCustomerExcludingAssessedTax",
                                          "SalesRevenueNet")], 1, sum, na.rm = TRUE)
     service <- service[, c("endDate", "Revenue", "CostOfGoodsAndServicesSold")]
-    service <- xts(x = service[,-1], order.by = service$endDate)
+    names(service) <- c("endDate", "ServiceRevenue", "CostOfServices")
+    service <- service |> 
+      dplyr::filter(dplyr::if_any(c(ServiceRevenue, CostOfServices),
+                                  ~ . != 0 & !is.na(.)))
+    # service <- xts(x = service[,-1], order.by = service$endDate)
     
     investment1 <- ins[,c("endDate", "value1", "brka_InvestmentIncomeInterestDividendAndOther",
                           "InvestmentIncomeInterestAndDividend", "InterestExpense")]
@@ -379,6 +411,9 @@ run_brkb_is_analysis <- function(st10Q, st10K){
       apply(investment1[, c("brka_InvestmentIncomeInterestDividendAndOther",
                             "InvestmentIncomeInterestAndDividend")], 1, sum, na.rm=TRUE)
     investment1 <- investment1[, c("endDate", "InvestmentIncomeInterestAndDividend", "InterestExpense")]
+    investment1 <- investment1 |> 
+      dplyr::filter(dplyr::if_any(c(InvestmentIncomeInterestAndDividend, InterestExpense),
+                                  ~ . != 0 & !is.na(.)))
     
     investment <- is[c("endDate", "value1", "NonoperatingIncomeExpense",
                        "NonoperatingGainsLosses",
@@ -396,37 +431,51 @@ run_brkb_is_analysis <- function(st10Q, st10K){
                            "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
                            "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet")], 
             1, sum, na.rm=TRUE)
-    investment <- investment[, c("endDate", "GainLossOnInvestments", "IncomeLossFromEquityMethodInvestments")]
+    investment <- investment[, c("endDate", "GainLossOnInvestments", 
+                                 "IncomeLossFromEquityMethodInvestments")]
     investment <- merge(investment, investment1, all = TRUE)
-    investment <- xts(x = investment[,-1], order.by = investment$endDate)
+    names(investment) <- c("endDate", "InvestmentGains", "EquityMethodIncome", 
+                           "InterestDividendIncome", "InterestExpense")
+    # investment <- xts(x = investment[,-1], order.by = investment$endDate)
     
     other_costs_ins <- ins["SellingGeneralAndAdministrativeExpense"]
     interest_exp_infra <- "InterestExpense"
     
     service_cost <- "OtherFinancialServicesCosts" # not part of insurance and other group
-    browser
-    return(list(investment, service, leasing, insurance, freight, energy,))
+
+    ret <- merge(investment, insurance, all = TRUE)
+    ret <- merge(ret, energy, all = TRUE)
+    ret <- merge(ret, freight, all = TRUE)
+    ret <- merge(ret, leasing, all = TRUE)
+    ret <- merge(ret, service, all = TRUE)
+    return(ret)
   }
   
-  browser()
   is10Q <- st10Q[[2]]
-  is10Q$endDate <- as.Date(is10Q$endDate)
-  is10Q$startDate <- as.Date(is10Q$startDate)
-  period <- lubridate::month(is10Q$endDate) - lubridate::month(is10Q$startDate)
-  # remove half year figures
-  is10Q <- is10Q[period != 5, ]
-  # store 9M seperatly,
-  is9M <- is10Q[period == 8, ]
-  is10Q <- is10Q[period != 8, ]
   is10K <- st10K[[2]]
+  is <- merge.statement(is10Q, is10K, by = c("contextId", "startDate", "endDate", "decimals", "value1"))
+  is$endDate <- as.Date(is$endDate)
+  is$startDate <- as.Date(is$startDate)
+  period <- lubridate::month(is$endDate) - lubridate::month(is$startDate)
+  is9M <- is[period == 8, ]
+  is12M <- is[period == 11, ]
+  is3M <- is[period == 2, ]
   
-  data <- analysis(is10Q)
-  data <- analysis(is9M)
-  data <- analysis(is10K)
+  data3M <- analysis(is3M)
+  data9M <- analysis(is9M)
+  data12M <- analysis(is12M)
+  eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
+  data9M <- data9M[eoy %in% data12M$endDate,]
+  eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
+  ind <- match(eoy, data12M$endDate)
+  dataQ4 <- data12M[ind,-1] - data9M[,-1] #ind has NA's data9M
+  dataQ4 <- cbind(data9M$endDate, dataQ4)
+  names(dataQ4)[1] <- "endDate"
+  data3M <- rbind(data3M, dataQ4)
+  data3M <- xts(x = data3M[, -1], order.by = data3M$endDate)
+  data12M <- xts(x = data12M[, -1], order.by = data12M$endDate)
   
-  
-  save(investment, service, leasing, insurance, freight, energy,
-       file = "./data/BRKB_income_bu.Rdata")
+  save(data3M, data12M, file = "./data/BRKB_income_bu.Rdata")
 }
 
 brkb_operatingincome <- function(st){
