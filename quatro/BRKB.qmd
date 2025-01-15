@@ -38,15 +38,19 @@ Key questions I want to address:
 
 ```{r}
 #| echo: false
+#| warning: false
+#| message: false
 library(xts)
 load("../data/BRKB_income_bu.Rdata")
-data <- data3M
+data <- data12M
 ```
 
 ## Graphs
 
 ```{r}
 #| echo: false
+#| warning: false
+#| message: false
  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses,
       yaxis.right = FALSE,
       main = "Premiums - underwriting expenses",
