@@ -1,0 +1,102 @@
+---
+title: "Berkshire analysis"
+author: "Wouter Buitenhuis"
+format: pdf
+editor: visual
+---
+
+## Intro
+
+Key questions I want to address:
+
+-   How is the insurance business doing:
+
+    -   How does the profit margin evolve?
+    -   What is the (long term) growth rate of profits?
+    -   How do underwriting expenses evolve?
+    -   What has been driving changes in profits? Changes in underwriting expenses, premium rates, or more business?
+
+-   How is the railway business doing:
+
+    -   How does the profit margin evolve?
+    -   What is the long term growth rate of profits?
+    -   What drive changes in profits? Is it driven by profit margin, or overall growth of the business?
+
+-   How is the energy business doing?
+
+    -   How does the profit margin evolve?
+    -   What is the long term growth rate of profits?
+    -   What drive changes in profits? Is it driven by profit margin, or overall growth of the business?
+
+-   Does the amount of buybacks of Berkshire be a predictor of future profitability or share price?
+
+-   Does amount of cash relative to total investments predict stock market?
+
+-   What is the expected profit growth rate for all operational business going forward?
+
+-   If you back out the public investments is Berkshire priced attractive?
+
+```{r}
+#| echo: false
+library(xts)
+load("../data/BRKB_income_bu.Rdata")
+data <- data3M
+```
+
+## Graphs
+
+```{r}
+#| echo: false
+ plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses,
+      yaxis.right = FALSE,
+      main = "Premiums - underwriting expenses",
+      main.timespan = FALSE)
+  plot(data$InsUnderwritingExpenses / data$InsPremiumsEarned,
+        yaxis.right = FALSE,
+      main = "Underwritingexpenses as % of insurance revenue",
+      main.timespan = FALSE)
+  
+  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses - data$ClaimsPropertyLiability - data$PolicyHolderBenefits,
+            yaxis.right = FALSE,
+      main = "Insurance Gross Profits",
+      main.timespan = FALSE)
+  
+  plot(data$LeaseIncome - data$CostOfLeasing,
+            yaxis.right = FALSE,
+      main = "Leasing Gross Profits",
+      main.timespan = FALSE)
+  
+  plot(data$LeaseIncome/data$CostOfLeasing - 1,
+            yaxis.right = FALSE,
+      main = "Leasing Profit Margin",
+      main.timespan = FALSE)
+  
+  plot(data$ServiceRevenue - data$CostOfServices,
+            yaxis.right = FALSE,
+      main = "Service Gross Profits",
+      main.timespan = FALSE)
+  plot(data$ServiceRevenue / data$CostOfServices - 1,
+       yaxis.right = FALSE,
+      main = "Service Profit Margin",
+      main.timespan = FALSE)
+  
+  plot(data$FreightRevenue - data$FreightCosts,
+            yaxis.right = FALSE,
+      main = "Freight Gross Profits",
+      main.timespan = FALSE)
+
+  plot(data$FreightRevenue / data$FreightCosts -1,
+            yaxis.right = FALSE,
+      main = "Freight Profit Margin",
+      main.timespan = FALSE)
+  plot(data$EnergyRevenue - data$EnergyCosts,
+            yaxis.right = FALSE,
+      main = "Energy Gross Profits",
+      main.timespan = FALSE)
+  plot(data$EnergyRevenue / data$EnergyCosts - 1,
+            yaxis.right = FALSE,
+      main = "Energy Profit Margin",
+      main.timespan = FALSE)
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).

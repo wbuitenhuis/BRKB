@@ -1,8 +1,6 @@
 # https://www.sec.gov/data-research/sec-markets-data/form-n-port-data-sets
 # quarterly sec filings with holdings from all S mutual funds
 
-# still need to build a function that removes half year numbers for income statement, and calculate Q4 numbers.
-# and joins 10Q as well as 10K
 
 brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statements"){
   # 1.) obtain CIK
@@ -182,17 +180,7 @@ brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statemen
 }
 
 clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
-  # if missing for all BU, but not parent, should stay missing. 
-  # need to track here which observations. Which variable meet these requirements?
-  # browser()
-  
-  # this currently assume there is only 1 period. 
-  # Needs to amend for multiperiods in 1 statement.
-  # best to break statement up in sub statements for each period.
-  # apply function to each sub statement
-  # aggregate statements in last step.
-  
-  
+
   clean_statement <- function(st){
     if (nrow(st) > 1){
       desc_vars <- colnames(st[1:which(colnames(st) == "value1")])

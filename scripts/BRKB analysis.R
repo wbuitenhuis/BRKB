@@ -155,7 +155,6 @@ source("./scripts/functions/brkb_analysis_functions.R")
 run_brkb_is_analysis(st_all_10Q, st_all_10K)
 
 
-load(file = "./data/BRKB_income_bu.RData")
 make_plots <- function(data){
   plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses)
   plot(log(data$InsPremiumsEarned - data$InsUnderwritingExpenses))
@@ -176,6 +175,9 @@ make_plots <- function(data){
   plot(data$EnergyCosts / data$EnergyRevenue)
   
 } 
+
+load(file = "./data/BRKB_income_bu.RData")
+make_plots(data12M)
 
 
 income <- brkb_operatingincome(st_parent)
