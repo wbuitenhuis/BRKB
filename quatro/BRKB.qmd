@@ -41,8 +41,12 @@ Key questions I want to address:
 #| warning: false
 #| message: false
 library(xts)
+library(ggplot2)
 load("../data/BRKB_income_bu.Rdata")
-data <- data12M
+data <- data3M
+data_graph <- data.frame(date = index(data), data)
+data_graph$t <- round((as.numeric(index(data) - last(index(data)))) / 365.25, digits = 2)
+
 ```
 
 ## Graphs
@@ -51,20 +55,86 @@ data <- data12M
 #| echo: false
 #| warning: false
 #| message: false
- plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses,
-      yaxis.right = FALSE,
-      main = "Premiums - underwriting expenses",
-      main.timespan = FALSE)
-  plot(data$InsUnderwritingExpenses / data$InsPremiumsEarned,
-        yaxis.right = FALSE,
-      main = "Underwritingexpenses as % of insurance revenue",
-      main.timespan = FALSE)
+ # plot((data$InsPremiumsEarned - data$InsUnderwritingExpenses),
+ #      yaxis.right = FALSE,
+ #      main = "Premiums - underwriting expenses",
+ #      main.timespan = FALSE)
+ols_premiums <- lm(log(InsPremiumsEarned - InsUnderwritingExpenses) ~ t, data = data_graph)
+caption <- paste("ln[premiums - underwriting expenses] =", 
+                 round(coef(ols_premiums)[1],1), "+", round(coef(ols_premiums)[2],3), "t")
+ data_graph |> ggplot(aes(x = date, 
+                          y = log10(InsPremiumsEarned - InsUnderwritingExpenses))) +
+   geom_point() + 
+  geom_line() +
+   scale_x_date(
+    breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
+    minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
+    date_labels = "%Y") + 
+   scale_y_continuous(
+    name = "10 Log $",                      # Primary y-axis label
+    sec.axis = sec_axis(~ 10^(.),             # Transformation for the secondary y-axis
+                        name = "$") ) +  # Secondary y-axis label
+     labs(title = "Premiums - underwriting expenses", x = "",
+    y = "billion $",
+    caption = caption) +
+   geom_smooth(method = "lm",           # Add OLS fit
+              se = TRUE,               # Display confidence interval (optional)
+              color = "darkred") +  
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
+   theme_minimal() 
+  
+ ols_ins_exp_ratio <- lm(InsUnderwritingExpenses / InsPremiumsEarned ~ t, data = data_graph)
+ caption <- paste("underwriting expenses / premiums =", 
+                 round(coef(ols_ins_exp_ratio)[1],3), "+", round(coef(ols_ins_exp_ratio)[2],4), "t")
+ data_graph |> ggplot(aes(x = date, 
+                          y = InsUnderwritingExpenses / data$InsPremiumsEarned)) +
+   geom_point() + 
+  geom_line() +
+   scale_x_date(
+    breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
+    minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
+    date_labels = "%Y") + 
+   scale_y_continuous(
+    name = "expense ratio") +  # Secondary y-axis label
+     labs(title = "Insurance underwriting expense ratio", x = "",
+    y = "",
+    caption = caption) +
+   geom_smooth(method = "lm",           # Add OLS fit
+              se = TRUE,               # Display confidence interval (optional)
+              color = "darkred") +  
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
+   theme_minimal() 
   
   plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses - data$ClaimsPropertyLiability - data$PolicyHolderBenefits,
             yaxis.right = FALSE,
       main = "Insurance Gross Profits",
       main.timespan = FALSE)
-  
+
+ols_ins_profit <- lm((InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability- PolicyHolderBenefits)/ 10^9 ~ t, data = data_graph)
+caption <- paste("profits =", 
+                 round(coef(ols_ins_profit)[1],4), "+", round(coef(ols_ins_profit)[2],4), "t")
+ data_graph |> ggplot(aes(x = date, 
+                          y = (InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability - PolicyHolderBenefits)/ 10^9)) +
+   geom_point() + 
+  geom_line() +
+   scale_x_date(
+    breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
+    minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
+    date_labels = "%Y") + 
+#   scale_y_continuous(
+#    name = "$",                      # Primary y-axis label
+#    sec.axis = sec_axis(~ 10log(.),             # Transformation for the secondary y-axis
+#                        name = "10 log") ) +  # Secondary y-axis label
+     labs(title = "Insurance profits", x = "",
+    y = "billion $",
+    caption = caption) +
+   geom_smooth(method = "lm",           # Add OLS fit
+              se = TRUE,               # Display confidence interval (optional)
+              color = "darkred") +  
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
+   theme_minimal() 
+    
+    
   plot(data$LeaseIncome - data$CostOfLeasing,
             yaxis.right = FALSE,
       main = "Leasing Gross Profits",

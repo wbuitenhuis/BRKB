@@ -2,7 +2,9 @@
 # quarterly sec filings with holdings from all S mutual funds
 
 
-brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statements"){
+brkb_statements <- function(form = "10-Q", years = 13, 
+                            filename = "BRKB_statements",
+                            arc = "presentation"){
   # 1.) obtain CIK
   # 2.) download 10-Q and 10-K links
   # 3.) For each 10)Q form, download xbrl instance and xbrl schema
@@ -46,7 +48,7 @@ brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statemen
     # xbrl <- check_elementnames(xbrl, fix = TRUE)
     xbrl$fact <- remove_duplicated_facts(xbrl$fact)
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
-                                 lbase = "presentation",
+                                 lbase = arc,
                                  complete_first = FALSE, 
                                  end_of_quarter = FALSE,
                                  basic_contexts = FALSE,
@@ -127,13 +129,15 @@ brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statemen
       }
       different_names <- names(st_parent) != names(st_parent_i)
       if (sum(different_names) > 0){
+        st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
         st_parent_i <- compare_statement_names(st_parent, st_parent_i)
       }
       different_names <- names(st_all) != names(st_all_i)
       if (sum(different_names) > 0){
         st_all_i <- compare_statement_names(st_all, st_all_i)
       }
-      #browser()
+      # if (min(as.Date(st_all_10Q[[2]]$endDate)) == as.Date("2009-09-30")) browser() 
+    
       st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
                                     remove_dupes = TRUE, keep_first = TRUE)
       st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE,
@@ -182,6 +186,7 @@ brkb_statements <- function(form = "10-Q", years = 13, filename = "BRKB_statemen
 clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
 
   clean_statement <- function(st){
+    # browser()
     if (nrow(st) > 1){
       desc_vars <- colnames(st[1:which(colnames(st) == "value1")])
       value_cols <- colnames(st)
@@ -197,7 +202,7 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
       empty_cols_bu <- sapply(
         st_bu, function(x) length(stats::na.omit(x))==0 
       )
-      st_bu[is.na(st_bu)] <- 0
+      # st_bu[is.na(st_bu)] <- 0 #is this correct?
       if (nrow(st_bu) > 0){
         st_bu[,empty_cols_bu & not_empty_cols_pa] <- NA
         st_bu_total <- st_bu |>
@@ -217,7 +222,8 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   
   members <- c(NA, "brka:InsuranceAndOtherMember", "brka:RailroadUtilitiesAndEnergyMember", 
                "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", 
-               "us-gaap:CargoAndFreightMember", "brka:FinanceAndFinancialProductsMember")
+               "us-gaap:CargoAndFreightMember", "brka:FinanceAndFinancialProductsMember",
+               "brka:RailroadMember")
   
   if (class(st)[1] == "WB error") return(st)
   if (filter){
@@ -264,7 +270,8 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     # ins <- ins |> select_if(~ any(!is.na(.)) & any(. != 0))
     
     rail <- is |> filter(value1 %in% c("brka:CargoAndFreightMember", 
-                                       "us-gaap:CargoAndFreightMember"))
+                                       "us-gaap:CargoAndFreightMember",
+                                       "brka:RailroadMember"))
     rail <- rail |> select_if(~ any(!is.na(.)) & any(. != 0))
     energy <- is |> filter(value1 %in% c("brka:UtilitiesAndEnergyMember"))
     energy <- energy |> select_if(~ any(!is.na(.)) & any(. != 0))
@@ -278,7 +285,7 @@ run_brkb_is_analysis <- function(st10Q, st10K){
                      "brka_SalesAndServiceRevenue",
                      "RevenueOtherFinancialServices", 
                      "brka_ServiceRevenuesAndOtherIncome")
-    
+    # browser()
     # in "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", "us-gaap:CargoAndFreightMember"
     freight_rev <- c("Revenues", "OperatingExpenses", "brka_CostsOfServicesAndOperatingExpenses", "brka_FreightRailTransportationRevenues", 
                      "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue") 
@@ -308,9 +315,9 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     # more data on rail business here: 
     # https://www.sec.gov/Archives/edgar/data/15511/000001551118000005/bnsfrailway-12312017x10xk.htm#sAE294AC985E55CB8887B10681A4F9210
     # https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000015511&owner=include&count=40&hidefilings=0
-    
     energy <- energy[,c("endDate", "value1", "RevenueFromContractWithCustomerExcludingAssessedTax", "brka_CostsOfServicesAndOperatingExpenses")]
-    energy1 <- infra[, c("endDate", "value1", "brka_UtilityAndEnergyOperatingRevenues", "brka_EnergyOperatingRevenues","OperatingExpenses")]
+#    energy1 <- infra[, c("endDate", "value1", "brka_UtilityAndEnergyOperatingRevenues", #"brka_EnergyOperatingRevenues","OperatingExpenses", "brka_CostsOfServicesAndOperatingExpenses")]
+        energy1 <- infra[, c("endDate", "value1", "brka_UtilityAndEnergyOperatingRevenues", "brka_EnergyOperatingRevenues", "brka_CostsOfServicesAndOperatingExpenses")]
     energy1$"brka_UtilityAndEnergyOperatingRevenues" <- 
       apply(energy1[, c("brka_UtilityAndEnergyOperatingRevenues", 
                         "brka_EnergyOperatingRevenues")], 
@@ -326,7 +333,7 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     energy <- energy[, -2]
     names(energy) <- c("endDate", "EnergyRevenue", "EnergyCosts")
     # energy <- xts(x = energy[,3:4], order.by = energy$endDate)
-    
+    # browser()
     insurance <- ins[, c("endDate", "value1", "PremiumsEarnedNet", 
                          "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
                          "IncurredClaimsPropertyCasualtyAndLiability",
@@ -366,14 +373,21 @@ run_brkb_is_analysis <- function(st10Q, st10K){
                                     PolicyHolderBenefits), ~ . != 0 & !is.na(.)))
     insurance1 <- insurance1[, c("endDate", "value1", "brka_PolicyholderBenefitsAndClaimsIncurredLifeAnnuityAndHealth")] #what is the use of insurance1?
     
-    leasing <- ins[,c("endDate", "value1","OperatingLeaseLeaseIncome", "brka_CostOfLeasing")]
+    leasing <- ins[,c("endDate", "value1","OperatingLeaseLeaseIncome", 
+                      "OperatingLeasesIncomeStatementLeaseRevenue",
+                      "brka_CostOfLeasing")]
     leasing <- leasing |> filter(value1 == "brka:InsuranceAndOtherMember")
+    # browser()
+    leasing$OperatingLeaseLeaseIncome <- apply(leasing[, 
+              c("OperatingLeaseLeaseIncome", "OperatingLeasesIncomeStatementLeaseRevenue")],
+              1, sum, na.rm = TRUE)
+    leasing <- leasing[, c("endDate", "OperatingLeaseLeaseIncome", 
+                           "brka_CostOfLeasing")]
     # leasing <- xts(x = leasing[,3:4], order.by = leasing$endDate)
-    names(leasing) <- c("endDate", "value1", "LeaseIncome", "CostOfLeasing")
-    leasing <- leasing[,-2]
+    names(leasing) <- c("endDate", "LeaseIncome", "CostOfLeasing")
+
     leasing <- leasing |> 
-      dplyr::filter(dplyr::if_any(c(LeaseIncome, CostOfLeasing),
-                                  ~ . != 0 & !is.na(.)))
+      dplyr::filter(dplyr::if_any(c(LeaseIncome, CostOfLeasing), ~ . != 0 & !is.na(.)))
     # RevenueFromContractWithCustomerIncludingAssessedTax does not exists in 10K
     service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
                       "RevenueFromContractWithCustomerIncludingAssessedTax", 
@@ -438,7 +452,8 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     ret <- merge(ret, service, all = TRUE)
     return(ret)
   }
-  
+  browser()
+  source("./scripts/finstr/finstr.R")
   is10Q <- st10Q[[2]]
   is10K <- st10K[[2]]
   is <- merge.statement(is10Q, is10K, by = c("contextId", "startDate", "endDate", "decimals", "value1"))
@@ -448,7 +463,6 @@ run_brkb_is_analysis <- function(st10Q, st10K){
   is9M <- is[period == 8, ]
   is12M <- is[period == 11, ]
   is3M <- is[period == 2, ]
-  
   data3M <- analysis(is3M)
   data9M <- analysis(is9M)
   data12M <- analysis(is12M)
@@ -457,7 +471,8 @@ run_brkb_is_analysis <- function(st10Q, st10K){
   eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
   ind <- match(eoy, data12M$endDate)
   dataQ4 <- data12M[ind,-1] - data9M[,-1] #ind has NA's data9M
-  dataQ4 <- cbind(data9M$endDate, dataQ4)
+  browser()
+  dataQ4 <- cbind(eoy, dataQ4)
   names(dataQ4)[1] <- "endDate"
   data3M <- rbind(data3M, dataQ4)
   data3M <- xts(x = data3M[, -1], order.by = data3M$endDate)

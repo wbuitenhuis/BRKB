@@ -370,8 +370,20 @@ compare_statement_names <- function(x, y){
       # we are good
       return(y)
     }
+    browser()
     stop("statements objects are not of same length")
   }
+  
+  # Define a function to count common elements
+  perc_common_elements <- function(df1, df2) {
+    # Find common elements in the first variable
+    df1 <- df1[,-(1:5)]
+    df2 <- df2[,-(1:5)]
+    common_elements <- intersect(names(df1), names(df2))
+    ret <- length(common_elements) / min(ncol(df1),ncol(df2))
+    return(ret)
+  }
+  
   # if one statement is missing assign it the value fo the statement to be merged
   if ("WB error" %in% lapply(x, class) |> unlist() |> unique()){
     ind <- which(lapply(x, class) == "WB error")
@@ -382,17 +394,6 @@ compare_statement_names <- function(x, y){
     y[[ind]] <- x[[ind]]
   }
   
-    
-  # Define a function to count common elements
-  perc_common_elements <- function(df1, df2) {
-    # Find common elements in the first variable
-    df1 <- df1[,-(1:5)]
-    df2 <- df2[,-(1:5)]
-    common_elements <- intersect(names(df1), names(df2))
-    ret <- length(common_elements) / min(ncol(df1),ncol(df2))
-    return(ret)
-  }
-
   same_name <- names(x) == names(y)
   # all names are the same, nothing to do
   if (sum(same_name) == length(x)) return(y)
@@ -448,17 +449,68 @@ compare_statement_names <- function(x, y){
       # 1.) assume statement order did not change
       # 3. ) go by closest statement name match
     } 
-      
     names(y)[!ind] <- missing_names_x[ind2]
   }
+  
   y <- y[names(x)]
   class(y) <- class(x)
-  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) browser()
   
   return(y)
+}
+
+
+statements_in_same_order <- function(x, y){
+  # this function achieves same as compare statement names,
+  # but does not use statement names, but the compares similarities in elements 
+  # of statements to decide in which order the statements of x and y
+  # need to be in order to match, or if any statements are missing.
+  # output is y in such a form that it matches x as much as possible for merging purposes.
+  
+  browser()  
+  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
+    stop("Not statements objects")
+  }
   
 }
 
+
+find_specific_fact <- function(url, fact, clean = TRUE){
+  # look for a specific fact (as string)
+  # this is used for debuging final reports that seem to have missing values
+  xml_filenames <- edgar_xbrl_URLs(paste0(url), verbose = TRUE)
+  xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
+  #all_missing_rows <- apply(xbrl$fact, 1, function(row) all(is.na(row)))
+  #print (paste(sum(all_missing_rows), "rows with only missing values"))
+  if (clean){
+    xbrl$fact <- remove_duplicated_facts(xbrl$fact)
+  }
+  browser()
+  ind <- stringr::str_detect(xbrl$fact$fact, pattern = fact)
+  ind[is.na(ind)] <- FALSE
+  ret <- xbrl$fact[ind, ]
+  ret <- ret |> dplyr::left_join(xbrl$context, by = dplyr::join_by(contextId))
+  ret <- ret |> dplyr::left_join(xbrl$label, by = dplyr::join_by(elementId))
+  
+  st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
+                         lbase = "presentation",
+                         complete_first = FALSE, 
+                         end_of_quarter = FALSE,
+                         basic_contexts = FALSE,
+                         nonzero_only = TRUE,
+                         regular_sec_reporting_periods = TRUE,
+                         nr_periods = 2)
+  is <- st[[2]]
+  is <- is |> dplyr::filter(value1 %in% ret$value1)
+  is <- is |> dplyr::filter(contextId %in% ret$contextId)
+  browser()
+  is_clean <- clean_BRKB_statement(st[[2]])
+  is_clean <- is_clean |> dplyr::filter(value1 %in% ret$value1)
+
+  # find context
+  # find labels
+  
+  return(ret)
+}
 
 
 

@@ -241,7 +241,8 @@ relevant_periods <- function(startDt, endDt){
   }
   gs$year <- lubridate::year(as.Date(gs$endDt))
   gs$month <- lubridate::month(as.Date(gs$endDt))
- 
+  keep <- gs$n > 0.5 * median(gs$n)
+  gs <- gs[keep, ]
   i.year <- which.max(gs$year[1:min(nrow(gs), 4)])
   year <- gs$year[i.year[1]]
   month <- max(gs$month[i.year])

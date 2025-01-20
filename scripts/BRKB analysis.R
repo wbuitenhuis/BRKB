@@ -139,8 +139,8 @@ source("./scripts/functions/brkb_analysis_functions.R")
 #load(file = "./data/test2y.RData")
 
 source("./scripts/functions/brkb_analysis_functions.R")
-brkb_statements(form = "10-K", years = 15)
-brkb_statements(form = "10-Q", years = 15)
+brkb_statements(form = "10-K", years = 15, arc = "presentation")
+brkb_statements(form = "10-Q", years = 17, arc = "presentation")
 
 # sink()
 print("done")
@@ -154,33 +154,7 @@ load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
 run_brkb_is_analysis(st_all_10Q, st_all_10K)
 
-
-make_plots <- function(data){
-  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses)
-  plot(log(data$InsPremiumsEarned - data$InsUnderwritingExpenses))
-  
-  plot(data$InsUnderwritingExpenses/data$InsPremiumsEarned)
-  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses - data$ClaimsPropertyLiability - data$PolicyHolderBenefits)
-  
-  plot(data$LeaseIncome - data$CostOfLeasing)
-  plot(data$CostOfLeasing/data$LeaseIncome)
-  plot(data$ServiceRevenue - data$CostOfServices)
-  plot(log(data$ServiceRevenue - data$CostOfServices))
-  
-  plot(data$CostOfServices / data$ServiceRevenue)
-  
-  plot(data$FreightRevenue - data$FreightCosts)
-  plot(data$FreightCosts / data$FreightRevenue)
-  plot(data$EnergyRevenue - data$EnergyCosts)
-  plot(data$EnergyCosts / data$EnergyRevenue)
-  
-} 
-
-load(file = "./data/BRKB_income_bu.RData")
-make_plots(data12M)
-
-
-income <- brkb_operatingincome(st_parent)
+load(file = "./data/BRKB_income_bu.Rdata")
 
 load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
@@ -188,3 +162,13 @@ brkb_shr_buybacks_analysis(st_all)
 brkb_shr_buybacks_analysis(st_parent)
 plot(income$ProfitLoss - income$GainLossOnInvestments)
 
+source("./scripts/functions/10Q_10K_functions.R")
+source("./scripts/functions/brkb_analysis_functions.R")
+#2009-09-30 insurance premiums 6,595
+missing_fact <- find_specific_fact(url = 
+  "https://www.sec.gov/Archives/edgar/data/1067983/000115752309007839/0001157523-09-007839-index.htm", 
+                   fact = "6,?595", clean = TRUE)
+is <- st_all_10Q[[2]]
+is <- is[is$endDate == "2013-03-31",]
+is <- is[is$startDate == "2013-01-01",]
+# shows up at parent level, weird
