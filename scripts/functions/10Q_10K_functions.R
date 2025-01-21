@@ -356,6 +356,7 @@ remove_duplicated_facts <- function(facts, verbose = FALSE){
 compare_statement_names <- function(x, y){
 
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
+    browser()
       stop("Not statements objects")
   }
   if (length(x) < length(y)){
@@ -410,8 +411,9 @@ compare_statement_names <- function(x, y){
   if (sum(ind) == length(x)){
     # x and y have the same names, but they are ordered differently.
     # just need to reorder y
-    browser()
+    # browser()
     y <- y[names(x)]
+    class(y) <- class(x)
     return(y)
   } else if (sum(ind) == length(x) - 1){
     # only one name difference
@@ -466,11 +468,77 @@ statements_in_same_order <- function(x, y){
   # need to be in order to match, or if any statements are missing.
   # output is y in such a form that it matches x as much as possible for merging purposes.
   
-  browser()  
   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
     stop("Not statements objects")
   }
   
+  # below is not the right approach
+  # should keep track which items ar erors or missing, than do analysis
+  # if one statement is missing assign it the value of the statement to be merged
+  ind_x <- ind_y <- NA
+  error_x <- error_y <- FALSE
+  if ("WB error" %in% lapply(x, class) |> unlist() |> unique()){
+    browser()
+    error_x <- TRUE
+    ind_x <- lapply(x, class) == "WB error" |> unlist()
+    x <- x[!ind_x]
+    # x[ind_x] <- y[ind_x]
+  }
+  if ("WB error" %in% lapply(y, class) |> unlist() |> unique()){
+    browser()
+    error_y <- TRUE
+    # ind_y <- which(lapply(y, class) == "WB error")
+    ind_y <- lapply(y, class) == "WB error" |> unlist()
+    y <- y[!ind_y]
+    error <- y[ind_y]
+    # y[ind_y] <- x[ind_y]
+  }
+  
+  variables_x <- lapply(x ,names)
+  variables_y <- lapply(y, names)
+  variables_x <- lapply(variables_x, function(x) x[-(1:5)])
+  variables_y <- lapply(variables_y, function(x) x[-(1:5)])
+  shared_perc <- lapply(variables_x, function(vec1) {
+    sapply(variables_y, function(vec2) {
+      length(intersect(vec1, vec2)) / length(vec1)
+    })
+  })
+  shared <- lapply(variables_x, function(vec1) {
+    sapply(variables_y, function(vec2) {
+      length(intersect(vec1, vec2))
+    })
+  })
+  shared_perc <- do.call(rbind, shared_perc) # put results n matrix form
+  shared <- do.call(rbind, shared)
+  best_match <- apply(shared_perc, 2, which.max)
+  if (length(x) == length(y)){
+    y <- y[best_match]
+    names(y) <- names(x[best_match])
+  }
+  if (length(x) > length(y)){
+    browser()
+    # which x is not in y
+    # put y in best order, 
+    # give y elements names of x
+  } 
+  if (length(x) < length(y)){
+    browser()
+    # which y is not in x
+    # put y in best order
+    # give y elements names of x
+
+  } 
+  if (error_y){
+    # put errors bag in y if there were any
+    browser()
+    ind_y <- which(ind_y)
+    for (i in 1:length(ind_y)){
+      y <- append(y, error[[i]], after = ind_y[i] - 1)
+    }
+  }
+  
+  class(y) <- "statements"
+  return(y)
 }
 
 

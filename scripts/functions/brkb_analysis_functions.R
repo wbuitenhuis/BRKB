@@ -34,7 +34,7 @@ brkb_statements <- function(form = "10-Q", years = 13,
   }
   
   for (i in 1:min(n, length(filing_urls))){
-
+    # if (i == 14) browser()
     if (sum(is.na(filing_urls) > 0)) browser()
     if (nchar(filing_urls[i]) < 5 | is.na(filing_urls[i])) browser()
     xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[i]),
@@ -65,6 +65,7 @@ brkb_statements <- function(form = "10-Q", years = 13,
       n_parent <- length(st_parent)
       n_all <- length(st_all)
     } else {
+      # if (i ==14) browser()
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
       st_all_i <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = TRUE)
       class(st_parent_i) <- class(st_all_i) <- "statements"
@@ -128,16 +129,19 @@ brkb_statements <- function(form = "10-Q", years = 13,
         }
       }
       different_names <- names(st_parent) != names(st_parent_i)
+      # if (length(st_parent) <  4) browser()
       if (sum(different_names) > 0){
-        st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
+       
+        #st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
         st_parent_i <- compare_statement_names(st_parent, st_parent_i)
       }
       different_names <- names(st_all) != names(st_all_i)
       if (sum(different_names) > 0){
+        # st_all_i <- statements_in_same_order(st_all, st_all_i)
         st_all_i <- compare_statement_names(st_all, st_all_i)
       }
       # if (min(as.Date(st_all_10Q[[2]]$endDate)) == as.Date("2009-09-30")) browser() 
-    
+      
       st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
                                     remove_dupes = TRUE, keep_first = TRUE)
       st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE,
@@ -228,7 +232,11 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   if (class(st)[1] == "WB error") return(st)
   if (filter){
     st_temp <- st# can remove is for debugging
-    st <- st |> dplyr::filter(value1 %in% members)  
+    st <- st |> dplyr::filter(value1 %in% members)
+    if (nrow(st) == 0){
+      print(paste("filter removed all entries. Will disable filter for this statement"))
+      st <- st_temp
+    }
   }
   if (nrow(st) == 0){
     ret <- "no valid observations after applying member filter"
@@ -242,13 +250,11 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
     # debuging code, may erase
     browser()
     st_l <- split(st, periodID)
-    debugonce(clean_statement)
     st_l <- lapply(st_l, clean_statement)
   } 
   st <- do.call(rbind, st_l)
   if (is.null(st)) browser()
   # browser()
-  
   return(st)
 }
 
