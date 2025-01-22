@@ -140,6 +140,7 @@ source("./scripts/functions/brkb_analysis_functions.R")
 
 source("./scripts/functions/brkb_analysis_functions.R")
 brkb_statements(form = "10-K", years = 15, arc = "presentation")
+source("./scripts/functions/brkb_analysis_functions.R")
 brkb_statements(form = "10-Q", years = 17, arc = "presentation")
 
 # sink()

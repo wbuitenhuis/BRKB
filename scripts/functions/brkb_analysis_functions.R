@@ -47,6 +47,7 @@ brkb_statements <- function(form = "10-Q", years = 13,
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
     # xbrl <- check_elementnames(xbrl, fix = TRUE)
     xbrl$fact <- remove_duplicated_facts(xbrl$fact)
+    # if (i == 46) browser()
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
                                  lbase = arc,
                                  complete_first = FALSE, 
@@ -65,10 +66,18 @@ brkb_statements <- function(form = "10-Q", years = 13,
       n_parent <- length(st_parent)
       n_all <- length(st_all)
     } else {
-      # if (i ==14) browser()
+      # if (sum(names(st_parent[[3]]) %in% names(st_parent[[4]])) > 20) browser()
       st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
       st_all_i <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = TRUE)
       class(st_parent_i) <- class(st_all_i) <- "statements"
+      if (sum(lapply(st_all_i, class) |> unlist() == "WB error") == length(st_all_i)){
+        print(paste("There are no statements for i", i))
+        # only errors, nothing to merge.
+        next
+      }
+      # if (i == 47) browser()
+      st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
+      st_all_i <- statements_in_same_order(st_all, st_all_i)
       if ("WB error" %in% lapply(st_parent_i, class)){
         #browser()
         remove_error_p <- TRUE
@@ -128,19 +137,20 @@ brkb_statements <- function(form = "10-Q", years = 13,
           # browser()
         }
       }
-      different_names <- names(st_parent) != names(st_parent_i)
+      # different_names <- names(st_parent) != names(st_parent_i)
       # if (length(st_parent) <  4) browser()
-      if (sum(different_names) > 0){
+      # if (sum(different_names) > 0){
        
         #st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
-        st_parent_i <- compare_statement_names(st_parent, st_parent_i)
-      }
-      different_names <- names(st_all) != names(st_all_i)
-      if (sum(different_names) > 0){
+      #  st_parent_i <- compare_statement_names(st_parent, st_parent_i)
+      #}
+      # different_names <- names(st_all) != names(st_all_i)
+      # if (sum(different_names) > 0){
         # st_all_i <- statements_in_same_order(st_all, st_all_i)
-        st_all_i <- compare_statement_names(st_all, st_all_i)
-      }
+      #   st_all_i <- compare_statement_names(st_all, st_all_i)
+      # }
       # if (min(as.Date(st_all_10Q[[2]]$endDate)) == as.Date("2009-09-30")) browser() 
+      # if (i == 14) browser()
       
       st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
                                     remove_dupes = TRUE, keep_first = TRUE)
@@ -233,10 +243,10 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   if (filter){
     st_temp <- st# can remove is for debugging
     st <- st |> dplyr::filter(value1 %in% members)
-    if (nrow(st) == 0){
-      print(paste("filter removed all entries. Will disable filter for this statement"))
-      st <- st_temp
-    }
+    # if (nrow(st) == 0){
+    #   print(paste("filter removed all entries. Will disable filter for this statement"))
+    #   st <- st_temp
+    # }
   }
   if (nrow(st) == 0){
     ret <- "no valid observations after applying member filter"
@@ -458,7 +468,7 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     ret <- merge(ret, service, all = TRUE)
     return(ret)
   }
-  browser()
+  # browser()
   source("./scripts/finstr/finstr.R")
   is10Q <- st10Q[[2]]
   is10K <- st10K[[2]]
@@ -477,7 +487,7 @@ run_brkb_is_analysis <- function(st10Q, st10K){
   eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
   ind <- match(eoy, data12M$endDate)
   dataQ4 <- data12M[ind,-1] - data9M[,-1] #ind has NA's data9M
-  browser()
+  # browser()
   dataQ4 <- cbind(eoy, dataQ4)
   names(dataQ4)[1] <- "endDate"
   data3M <- rbind(data3M, dataQ4)

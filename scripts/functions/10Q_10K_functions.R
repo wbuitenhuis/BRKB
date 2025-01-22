@@ -353,112 +353,112 @@ remove_duplicated_facts <- function(facts, verbose = FALSE){
 }
 
 # makes sure statements y will have same names in same order as statements x
-compare_statement_names <- function(x, y){
-
-  if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
-    browser()
-      stop("Not statements objects")
-  }
-  if (length(x) < length(y)){
-    if (sum(names(x) %in% names(y)) == length(x)){
-      # we are good
-      return(y)
-    }
-    stop("statements objects are not of same length")
-  }
-  if (length(x) > length(y)){
-    if (sum(names(y) %in% names(x)) == length(y)){
-      # we are good
-      return(y)
-    }
-    browser()
-    stop("statements objects are not of same length")
-  }
-  
-  # Define a function to count common elements
-  perc_common_elements <- function(df1, df2) {
-    # Find common elements in the first variable
-    df1 <- df1[,-(1:5)]
-    df2 <- df2[,-(1:5)]
-    common_elements <- intersect(names(df1), names(df2))
-    ret <- length(common_elements) / min(ncol(df1),ncol(df2))
-    return(ret)
-  }
-  
-  # if one statement is missing assign it the value fo the statement to be merged
-  if ("WB error" %in% lapply(x, class) |> unlist() |> unique()){
-    ind <- which(lapply(x, class) == "WB error")
-    x[[ind]] <- y[[ind]]
-  }
-  if ("WB error" %in% lapply(y, class) |> unlist() |> unique()){
-    ind <- which(lapply(y, class) == "WB error")
-    y[[ind]] <- x[[ind]]
-  }
-  
-  same_name <- names(x) == names(y)
-  # all names are the same, nothing to do
-  if (sum(same_name) == length(x)) return(y)
-  
-  # check for duplicates in names
-  dupes_x <- duplicated(names(x))
-  dupes_y <- duplicated(names(y))
-  if (sum(dupes_x) > 0 | sum(dupes_y) > 0){
-    # have duplicated names
-    browser()
-  }
-  
-  ind <- names(y) %in% names(x)
-  if (sum(ind) == length(x)){
-    # x and y have the same names, but they are ordered differently.
-    # just need to reorder y
-    # browser()
-    y <- y[names(x)]
-    class(y) <- class(x)
-    return(y)
-  } else if (sum(ind) == length(x) - 1){
-    # only one name difference
-    # browser()
-    names(y)[!ind] <- names(x)[!(names(x) %in% names(y))]
-  } else {
-    # multiple name differences
-    # check which have different names
-    missing_names_y <- names(y)[!ind]
-    missing_names_x <- names(x)[!(names(x) %in% names(y))]
-    y_missing <- y[missing_names_y]
-    x_missing <- x[missing_names_x]
-    common_elements <- matrix(NA, nrow = length(x_missing), ncol = length(y_missing))
-    for (i in 1:length(x_missing)){
-      for(j in 1:length(y_missing)){
-        common_elements[i,j] <- perc_common_elements(x_missing[[i]], y_missing[[j]])
-      }
-    }
-    ind2 <- apply(common_elements, 2, which.max)
-  
-      if (sum(duplicated(ind2)) > 1) browser() # have major issue
-    if (sum(duplicated(ind2)) > 0){
-      # This can happen if all variables in a statement are renamed in one period.
-      # Next best matching method is either:
-      # 2.) process of elimination: if one of duplicates has high match and other is a tie
-      # assign highest match
-      ind3 <- which(ind2 == ind2[duplicated(ind2)])
-      common_elements3 <- common_elements[ind3, ind3]
-      which.max(common_elements3)
-      max3 <- apply(common_elements3,2,max)
-      winner <- which.max(max3)
-      loser <- which.min(max3)
-      not_assigned <- (1:length(ind2))[!(1:length(ind2)) %in% ind2]
-      ind2[ind3[loser]] <- not_assigned
-      # 1.) assume statement order did not change
-      # 3. ) go by closest statement name match
-    } 
-    names(y)[!ind] <- missing_names_x[ind2]
-  }
-  
-  y <- y[names(x)]
-  class(y) <- class(x)
-  
-  return(y)
-}
+# compare_statement_names <- function(x, y){
+# 
+#   if( !"statements" %in% class(x) || !"statements" %in% class(y) ) {
+#     browser()
+#       stop("Not statements objects")
+#   }
+#   if (length(x) < length(y)){
+#     if (sum(names(x) %in% names(y)) == length(x)){
+#       # we are good
+#       return(y)
+#     }
+#     stop("statements objects are not of same length")
+#   }
+#   if (length(x) > length(y)){
+#     if (sum(names(y) %in% names(x)) == length(y)){
+#       # we are good
+#       return(y)
+#     }
+#     browser()
+#     stop("statements objects are not of same length")
+#   }
+#   
+#   # Define a function to count common elements
+#   perc_common_elements <- function(df1, df2) {
+#     # Find common elements in the first variable
+#     df1 <- df1[,-(1:5)]
+#     df2 <- df2[,-(1:5)]
+#     common_elements <- intersect(names(df1), names(df2))
+#     ret <- length(common_elements) / min(ncol(df1),ncol(df2))
+#     return(ret)
+#   }
+#   
+#   # if one statement is missing assign it the value fo the statement to be merged
+#   if ("WB error" %in% lapply(x, class) |> unlist() |> unique()){
+#     ind <- which(lapply(x, class) == "WB error")
+#     x[[ind]] <- y[[ind]]
+#   }
+#   if ("WB error" %in% lapply(y, class) |> unlist() |> unique()){
+#     ind <- which(lapply(y, class) == "WB error")
+#     y[[ind]] <- x[[ind]]
+#   }
+#   
+#   same_name <- names(x) == names(y)
+#   # all names are the same, nothing to do
+#   if (sum(same_name) == length(x)) return(y)
+#   
+#   # check for duplicates in names
+#   dupes_x <- duplicated(names(x))
+#   dupes_y <- duplicated(names(y))
+#   if (sum(dupes_x) > 0 | sum(dupes_y) > 0){
+#     # have duplicated names
+#     browser()
+#   }
+#   
+#   ind <- names(y) %in% names(x)
+#   if (sum(ind) == length(x)){
+#     # x and y have the same names, but they are ordered differently.
+#     # just need to reorder y
+#     # browser()
+#     y <- y[names(x)]
+#     class(y) <- class(x)
+#     return(y)
+#   } else if (sum(ind) == length(x) - 1){
+#     # only one name difference
+#     # browser()
+#     names(y)[!ind] <- names(x)[!(names(x) %in% names(y))]
+#   } else {
+#     # multiple name differences
+#     # check which have different names
+#     missing_names_y <- names(y)[!ind]
+#     missing_names_x <- names(x)[!(names(x) %in% names(y))]
+#     y_missing <- y[missing_names_y]
+#     x_missing <- x[missing_names_x]
+#     common_elements <- matrix(NA, nrow = length(x_missing), ncol = length(y_missing))
+#     for (i in 1:length(x_missing)){
+#       for(j in 1:length(y_missing)){
+#         common_elements[i,j] <- perc_common_elements(x_missing[[i]], y_missing[[j]])
+#       }
+#     }
+#     ind2 <- apply(common_elements, 2, which.max)
+#   
+#       if (sum(duplicated(ind2)) > 1) browser() # have major issue
+#     if (sum(duplicated(ind2)) > 0){
+#       # This can happen if all variables in a statement are renamed in one period.
+#       # Next best matching method is either:
+#       # 2.) process of elimination: if one of duplicates has high match and other is a tie
+#       # assign highest match
+#       ind3 <- which(ind2 == ind2[duplicated(ind2)])
+#       common_elements3 <- common_elements[ind3, ind3]
+#       which.max(common_elements3)
+#       max3 <- apply(common_elements3,2,max)
+#       winner <- which.max(max3)
+#       loser <- which.min(max3)
+#       not_assigned <- (1:length(ind2))[!(1:length(ind2)) %in% ind2]
+#       ind2[ind3[loser]] <- not_assigned
+#       # 1.) assume statement order did not change
+#       # 3. ) go by closest statement name match
+#     } 
+#     names(y)[!ind] <- missing_names_x[ind2]
+#   }
+#   
+#   y <- y[names(x)]
+#   class(y) <- class(x)
+#   
+#   return(y)
+# }
 
 
 statements_in_same_order <- function(x, y){
@@ -485,13 +485,10 @@ statements_in_same_order <- function(x, y){
     # x[ind_x] <- y[ind_x]
   }
   if ("WB error" %in% lapply(y, class) |> unlist() |> unique()){
-    browser()
     error_y <- TRUE
-    # ind_y <- which(lapply(y, class) == "WB error")
     ind_y <- lapply(y, class) == "WB error" |> unlist()
-    y <- y[!ind_y]
     error <- y[ind_y]
-    # y[ind_y] <- x[ind_y]
+    y <- y[!ind_y]
   }
   
   variables_x <- lapply(x ,names)
@@ -503,23 +500,46 @@ statements_in_same_order <- function(x, y){
       length(intersect(vec1, vec2)) / length(vec1)
     })
   })
+  shared_perc2 <- lapply(variables_x, function(vec1) {
+    sapply(variables_y, function(vec2) {
+      length(intersect(vec1, vec2)) / length(vec2)
+    })
+  })
   shared <- lapply(variables_x, function(vec1) {
     sapply(variables_y, function(vec2) {
       length(intersect(vec1, vec2))
     })
   })
-  shared_perc <- do.call(rbind, shared_perc) # put results n matrix form
+  shared_perc <- do.call(rbind, shared_perc)
+  shared_perc2 <- do.call(rbind, shared_perc2) # put results n matrix form
+  # put results n matrix form
   shared <- do.call(rbind, shared)
-  best_match <- apply(shared_perc, 2, which.max)
+  best_match <- apply(shared, 2, which.max)
+  if (sum(duplicated(best_match)) > 0){
+    browser() # have an issue 
+  }
   if (length(x) == length(y)){
     y <- y[best_match]
-    names(y) <- names(x[best_match])
+    names(y) <- names(x)
   }
   if (length(x) > length(y)){
-    browser()
-    # which x is not in y
-    # put y in best order, 
-    # give y elements names of x
+    # y_old <- y # for debugging
+    # y <- y[best_match]
+    # browser()
+    names(y) <- names(x[best_match])
+    ind_y <- !1:length(x) %in% best_match
+    if (!error_y){
+      # need to put an error in missing element
+      # browser()
+      error <- "statement missing"
+      class(error) <- "WB error"
+      ind_error <- which(!names(x) %in% names(y))
+      for (i in 1:length(ind_error)){
+        y <- append(y, error, after = ind_error[i] - 1)
+        class(y[[ind_error[i]]]) <- class(error)
+      }
+
+    }
   } 
   if (length(x) < length(y)){
     browser()
@@ -530,10 +550,10 @@ statements_in_same_order <- function(x, y){
   } 
   if (error_y){
     # put errors bag in y if there were any
-    browser()
     ind_y <- which(ind_y)
     for (i in 1:length(ind_y)){
       y <- append(y, error[[i]], after = ind_y[i] - 1)
+      class(y[[ind_y[i]]]) <- class(error[[i]])
     }
   }
   

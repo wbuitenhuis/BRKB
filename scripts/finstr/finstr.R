@@ -1036,6 +1036,7 @@ compare_element_names <- function(x, y){
 merge.statement <- function(x, y, replace_na = FALSE, remove_dupes = FALSE, 
                             keep_first = TRUE,...) {
   if( !"statement" %in% class(x) || !"statement" %in% class(y) ) {
+    browser()
     stop(paste("Not statement objects. Dealing with object classes", class(x), "and", class(y)))
   }
   if (isFALSE(compare_element_names(names(x)[-5], names(y)[-5]))) browser()
