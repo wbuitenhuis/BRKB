@@ -153,14 +153,15 @@ print("done")
 
 load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
-run_brkb_is_analysis(st_all_10Q, st_all_10K)
+run_brkb_analysis(st_all_10Q, st_all_10K)
 
 load(file = "./data/BRKB_income_bu.Rdata")
 
 load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
-brkb_shr_buybacks_analysis(st_all)
-brkb_shr_buybacks_analysis(st_parent)
+brkb_bs_analysis(st_parent_10K)
+
+brkb_cf_analysis(st_parent_10K)
 plot(income$ProfitLoss - income$GainLossOnInvestments)
 
 source("./scripts/functions/10Q_10K_functions.R")

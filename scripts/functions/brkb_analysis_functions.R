@@ -274,11 +274,11 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
 # energy
 # rail roads
 # investment gains
-run_brkb_is_analysis <- function(st10Q, st10K){
+run_brkb_analysis <- function(st10Q, st10K){
   library(dplyr)
   library(xts)
   
-  analysis <- function(is){
+  is_analysis <- function(is){
     is <- is[,-1]
     is$endDate <- as.Date(is$endDate)
     is <- is |> group_by(startDate, endDate, value1) |> summarise(across(everything(), sum))
@@ -301,8 +301,6 @@ run_brkb_is_analysis <- function(st10Q, st10K){
                      "brka_SalesAndServiceRevenue",
                      "RevenueOtherFinancialServices", 
                      "brka_ServiceRevenuesAndOtherIncome")
-    # browser()
-    # in "brka:CargoAndFreightMember", "brka:UtilitiesAndEnergyMember", "us-gaap:CargoAndFreightMember"
     freight_rev <- c("Revenues", "OperatingExpenses", "brka_CostsOfServicesAndOperatingExpenses", "brka_FreightRailTransportationRevenues", 
                      "brka_CargoAndFreightRevenueAndRegulatedAndUnregulatedOperatingRevenue") 
     energy_rev <- c("Revenues", "OperatingExpenses","RevenueFromContractWithCustomerExcludingAssessedTax", 
@@ -321,18 +319,17 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     freight1 <- freight1 |> 
       dplyr::filter(dplyr::if_any(c(Revenues, OperatingExpenses), ~ . != 0 & !is.na(.)))
     freight <- rbind(freight, freight1) 
+    freight <- freight[!duplicated(freight$endDate), ]
     freight <- freight[order(freight$endDate), ]
     # Remove rows where the entire row has only NA or 0 values
     freight <- freight[apply(freight[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
     freight <- freight[,-2]
     names(freight) <- c("endDate", "FreightRevenue", "FreightCosts")
     
-    # freight <- xts(x = freight[,3:4], order.by = freight$endDate)
     # more data on rail business here: 
     # https://www.sec.gov/Archives/edgar/data/15511/000001551118000005/bnsfrailway-12312017x10xk.htm#sAE294AC985E55CB8887B10681A4F9210
     # https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000015511&owner=include&count=40&hidefilings=0
     energy <- energy[,c("endDate", "value1", "RevenueFromContractWithCustomerExcludingAssessedTax", "brka_CostsOfServicesAndOperatingExpenses")]
-#    energy1 <- infra[, c("endDate", "value1", "brka_UtilityAndEnergyOperatingRevenues", #"brka_EnergyOperatingRevenues","OperatingExpenses", "brka_CostsOfServicesAndOperatingExpenses")]
         energy1 <- infra[, c("endDate", "value1", "brka_UtilityAndEnergyOperatingRevenues", "brka_EnergyOperatingRevenues", "brka_CostsOfServicesAndOperatingExpenses")]
     energy1$"brka_UtilityAndEnergyOperatingRevenues" <- 
       apply(energy1[, c("brka_UtilityAndEnergyOperatingRevenues", 
@@ -342,14 +339,13 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     names(energy) <- names(energy1) <- c("endDate", "value1","Revenues","OperatingExpenses")
     energy1 <- energy1 |> 
       dplyr::filter(dplyr::if_any(c(Revenues, OperatingExpenses), ~ . != 0 & !is.na(.)))
-    
+    # if (rbind(energy, energy1)$endDate |> duplicated() |> sum() > 0) browser()
     energy <- rbind(energy, energy1) # this can create duplicated rows
+    energy <- energy[!duplicated(energy$endDate), ]
     energy <- energy[order(energy$endDate), ]
     energy <- energy[apply(energy[,3:4], 1, function(row) !all(is.na(row) | row == 0)), ]
     energy <- energy[, -2]
     names(energy) <- c("endDate", "EnergyRevenue", "EnergyCosts")
-    # energy <- xts(x = energy[,3:4], order.by = energy$endDate)
-    # browser()
     insurance <- ins[, c("endDate", "value1", "PremiumsEarnedNet", 
                          "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1",
                          "IncurredClaimsPropertyCasualtyAndLiability",
@@ -468,108 +464,166 @@ run_brkb_is_analysis <- function(st10Q, st10K){
     ret <- merge(ret, service, all = TRUE)
     return(ret)
   }
+  
+  cf_analysis <- function(st){
+    library(dplyr)
+    st <- st[,-1]
+    st$endDate <- as.Date(st$endDate)
+    # should instead filter with value = NA
+    st <- st |> filter(is.na(value1) | value1 == 0)
+    # st <- st |> group_by(startDate, endDate, value1) |> summarise(across(everything(), sum))
+    #st <- st |> select_if(~ any(!is.na(.)) & any(. != 0))
+    equity_p_and_s <- st[,c("startDate", "endDate", 
+                            "PaymentsToAcquireEquitySecuritiesFvNi",
+                            "brka_PaymentsToAcquireEquitySecurities",
+                            "ProceedsFromSaleOfEquitySecuritiesFvNi",
+                            "brka_ProceedsFromSalesOfEquitySecurities",
+                            "PaymentsToAcquireAvailableForSaleSecuritiesEquity",
+                            "PaymentsToAcquireEquityMethodInvestments",
+                            "brka_ProceedsFromSalesAndRedemptionsOfAvailableForSaleSecuritiesEquitySecurities",
+                            "brka_ProceedsFromSalesAndRedemptionsOfEquitySecurities",
+                            "PaymentsForRepurchaseOfCommonStock",
+                            "brka_PaymentsToAcquirePreferredStockCommonStockAndOtherInvestments")]
+    
+    equity_p_and_s$equity_purchases <- 
+      apply(st[, c("PaymentsToAcquireEquitySecuritiesFvNi",
+                   "brka_PaymentsToAcquireEquitySecurities",
+                   "PaymentsToAcquireAvailableForSaleSecuritiesEquity",
+                   "PaymentsToAcquireEquityMethodInvestments")], 
+            1, sum, na.rm=TRUE)
+    equity_p_and_s$equity_sales <- 
+      apply(st[, c("ProceedsFromSaleOfEquitySecuritiesFvNi",
+                   "brka_ProceedsFromSalesOfEquitySecurities",
+                   "brka_ProceedsFromSalesAndRedemptionsOfAvailableForSaleSecuritiesEquitySecurities",
+                   "brka_ProceedsFromSalesAndRedemptionsOfEquitySecurities")], 
+            1, sum, na.rm=TRUE)
+    equity_p_and_s <-  equity_p_and_s[, c("startDate", "endDate", 
+                                          "equity_purchases",
+                                          "equity_sales",
+                                          "PaymentsForRepurchaseOfCommonStock")]
+    
+    other_cf <- st[ ,c("startDate", "endDate", "ProfitLoss",
+                       "GainLossOnInvestments", "DepreciationDepletionAndAmortization",
+                       "Depreciation", "PaymentsToAcquirePropertyPlantAndEquipment")]
+    other_cf$depr <- apply(st[, c("Depreciation", "DepreciationDepletionAndAmortization")],1,sum, na.rm=TRUE)
+    other_cf <- other_cf[, c("startDate", "endDate", "ProfitLoss",
+                           "GainLossOnInvestments", "depr", "PaymentsToAcquirePropertyPlantAndEquipment")]
+    names(other_cf) <- c("startDate", "endDate", "PnL",
+                         "investment_gains", "depreciation", "plant_and_equipment")
+    class(other_cf) <- setdiff(class(other_cf), "statement")
+    class(equity_p_and_s) <- setdiff(class(equity_p_and_s), "statement")
+    ret <- merge(other_cf, equity_p_and_s)
+    ret <- ret[!apply(ret[,-(1:2)], 1, function(row) all(is.na(row) | row == 0)), ]
+    ret <- ret[,-1] # remove start date
+    return(ret)
+  }
+  
+  bs_analysis <- function(st){
+    bs <- st
+    bs <- bs[is.na(bs$value1) | bs$value1 == 0, ]
+    bs$endDate <- as.Date(bs$endDate)
+    bs <- bs[,-1]
+    # bs <- bs |> select_if(~ any(!is.na(.)) & any(. != 0))
+    bs <- bs[, c("endDate","CashAndCashEquivalentsAtCarryingValue", 
+                 "brka_USTreasuryBills", #"brka_CashCashEquivalentsAndUSTreasuryBills",
+                 "AvailableForSaleSecuritiesEquitySecurities",
+                 "EquitySecuritiesFvNi", "MarketableSecuritiesEquitySecurities",
+                 "brka_EquityMethodInvestmentsInPreferredStockAndCommonStock",
+                 "EquityMethodInvestments", "AdditionalPaidInCapitalCommonStock",
+                 "StockholdersEquity")]
+    bs$cash_equiv <- apply(bs[, c("CashAndCashEquivalentsAtCarryingValue", 
+                                  "brka_USTreasuryBills")], 1, sum, na.rm=TRUE)
+    bs$m2m_equities <-apply(bs[, c("AvailableForSaleSecuritiesEquitySecurities",
+                                   "EquitySecuritiesFvNi", 
+                                   "MarketableSecuritiesEquitySecurities")], 
+                            1, sum, na.rm=TRUE)
+    bs$equities_at_cost <-apply(bs[, c("brka_EquityMethodInvestmentsInPreferredStockAndCommonStock",
+                                       "EquityMethodInvestments")], 
+                                1, sum, na.rm=TRUE)
+    bs <- bs[, c("endDate", "cash_equiv", "m2m_equities", "equities_at_cost",
+                 "AdditionalPaidInCapitalCommonStock",
+                 "StockholdersEquity")]
+    dupe1 <- duplicated(bs$endDate, fromLast = TRUE)
+    dupe2 <- duplicated(bs$endDate, fromLast = FALSE)
+    missing1 <- rowSums(is.na(bs[dupe1, ]) | bs[dupe1, ] == 0, na.rm = TRUE)
+    missing2 <- rowSums(is.na(bs[dupe2, ]) | bs[dupe1, ] == 0, na.rm = TRUE)
+    bs <- bs[!dupe1, ]
+    return(bs)
+  }
+  
+  
+  run_cashflow_or_income_analysis <- function(st10Q, st10K, analysis = "IS"){
+    if (analysis == "IS"){
+      st10Q <- st10Q[[2]]
+      st10K <- st10K[[2]]
+    }
+    if (analysis == "CF")
+    {
+      st10Q <- st10Q[[4]]
+      st10K <- st10K[[4]]
+    }
+    if (analysis == "BS"){
+      st10Q <- st10Q[[1]]
+      st10K <- st10K[[1]]
+    }
+    source("./scripts/finstr/finstr.R")
+    st <- merge.statement(st10Q, st10K, by = c("contextId", "startDate", "endDate", "decimals", "value1"))
+    st$endDate <- as.Date(st$endDate)
+    st$startDate <- as.Date(st$startDate)
+    if (analysis != "BS"){
+      period <- lubridate::month(st$endDate) - lubridate::month(st$startDate)
+      st9M <- st[period == 8, ]
+      st12M <- st[period == 11, ]
+      st3M <- st[period == 2, ]
+    }
+    if (analysis == "IS"){
+      data3M <- is_analysis(st3M)
+      data9M <- is_analysis(st9M)
+      # browser()
+      data12M <- is_analysis(st12M)
+    } 
+    if (analysis == "CF") {
+      data3M <- cf_analysis(st3M)
+      data9M <- cf_analysis(st9M)
+      data12M <- cf_analysis(st12M)
+    }
+    if (analysis == "BS"){
+      data3M <- bs_analysis(st)
+      st12M <- st |> dplyr::filter(endDate == 
+                                     lubridate::ceiling_date(st$endDate, "year") -
+                                     lubridate::days(1))
+      data12M <- bs_analysis(st12M)
+    }
+    if (analysis != "BS"){
+      eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
+      data9M <- data9M[eoy %in% data12M$endDate,]
+      eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
+      ind <- match(eoy, data12M$endDate)
+      dataQ4 <- data12M[ind,-1] - data9M[,-1] #ind has NA's data9M
+      dataQ4 <- cbind(eoy, dataQ4)
+      names(dataQ4)[1] <- "endDate"
+      data3M <- rbind(data3M, dataQ4)
+    }
+    
+    data3M <- xts(x = data3M[, -1], order.by = data3M$endDate)
+    data12M <- xts(x = data12M[, -1], order.by = data12M$endDate)
+    return(list(data3M, data12M))
+  }
   # browser()
-  source("./scripts/finstr/finstr.R")
-  is10Q <- st10Q[[2]]
-  is10K <- st10K[[2]]
-  is <- merge.statement(is10Q, is10K, by = c("contextId", "startDate", "endDate", "decimals", "value1"))
-  is$endDate <- as.Date(is$endDate)
-  is$startDate <- as.Date(is$startDate)
-  period <- lubridate::month(is$endDate) - lubridate::month(is$startDate)
-  is9M <- is[period == 8, ]
-  is12M <- is[period == 11, ]
-  is3M <- is[period == 2, ]
-  data3M <- analysis(is3M)
-  data9M <- analysis(is9M)
-  data12M <- analysis(is12M)
-  eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
-  data9M <- data9M[eoy %in% data12M$endDate,]
-  eoy <- lubridate::ceiling_date(data9M$endDate, "year") - lubridate::days(1)
-  ind <- match(eoy, data12M$endDate)
-  dataQ4 <- data12M[ind,-1] - data9M[,-1] #ind has NA's data9M
-  # browser()
-  dataQ4 <- cbind(eoy, dataQ4)
-  names(dataQ4)[1] <- "endDate"
-  data3M <- rbind(data3M, dataQ4)
-  data3M <- xts(x = data3M[, -1], order.by = data3M$endDate)
-  data12M <- xts(x = data12M[, -1], order.by = data12M$endDate)
+  is_figures <- run_cashflow_or_income_analysis(st10Q, st10K, analysis = "IS")
+  cf_figures <- run_cashflow_or_income_analysis(st10Q, st10K, analysis = "CF")
+  bs_figures <- run_cashflow_or_income_analysis(st10Q, st10K, analysis = "BS")
+  data3M <- merge(is_figures[[1]], cf_figures[[1]])
+  data3M <- merge(data3M, bs_figures[[1]])
+  data12M <- merge(is_figures[[2]], cf_figures[[2]])
+  data12M <- merge(data12M, bs_figures[[2]])
   
   save(data3M, data12M, file = "./data/BRKB_income_bu.Rdata")
 }
 
-brkb_operatingincome <- function(st){
-  # input statement parent
-  library(xts)
-  is <- st[[2]]
-  is <- is |> select_if(~ any(!is.na(.)) & any(. != 0))
-  is$endDate <- as.Date(is$endDate)
-  # nr_shares <- is[,c("endDate", "WeightedAverageNumberOfSharesOutstandingBasic")]
-  # nr_shares has too many zeros
-  income <- is[,c("endDate",
-  "ProfitLoss",
-  "IncomeTaxExpenseBenefit",
-  "NetIncomeLossAttributableToNoncontrollingInterest",
-  "NetIncomeLoss")]
-  
-  investment_income <-is[,c("endDate",
-                            "GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments",
-                            "OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet",
-                            "InvestmentIncomeInterestAndDividend",
-                            "brka_InvestmentIncomeInterestDividendAndOther",
-                            "GainLossOnInvestments",
-                            "NonoperatingGainsLosses",
-                            "NonoperatingIncomeExpense",
-                            "InterestExpense",
-                            "GainLossOnDerivativeInstrumentsNetPretax"
-                            )]
-  
-  investment_income$InvestmentIncomeInterestAndDividend <- 
-    investment_income$InvestmentIncomeInterestAndDividend +
-    investment_income$brka_InvestmentIncomeInterestDividendAndOther
-  
-  investment_income <- investment_income |> dplyr::select(-brka_InvestmentIncomeInterestDividendAndOther)
-  investment_income <- investment_income |> dplyr::mutate(NonoperatingGainsLosses =
-                    NonoperatingGainsLosses + NonoperatingIncomeExpense)
-  investment_income <- investment_income |> dplyr::mutate(GainLossOnInvestments =
-                                                            GainLossOnInvestments + 
-                                                            GainLossOnDerivativeInstrumentsNetPretax)
-  investment_income <- investment_income |> dplyr::mutate(GainLossOnInvestments =
-      ifelse(GainLossOnInvestments == 0 | NonoperatingGainsLosses == 0,
-             GainLossOnInvestments + NonoperatingGainsLosses, GainLossOnInvestments))
 
-    investment_income <- investment_income |> dplyr::select(-c(NonoperatingIncomeExpense,
-                                                            GainLossOnDerivativeInstrumentsNetPretax,
-                                                            NonoperatingGainsLosses))
-  investment_income <- investment_income |> dplyr::filter(endDate > as.Date("2013-01-01")) 
-  investment_income <- investment_income |>
-    dplyr::select(-c(GainLossOnInvestmentsExcludingOtherThanTemporaryImpairments,
-                     OtherThanTemporaryImpairmentLossesInvestmentsPortionRecognizedInEarningsNet))
-  investment_income <- xts(x = investment_income[, -1], order.by = investment_income$endDate)
-  #nr_shares <- xts(x = nr_shares[, -1], order.by = nr_shares$endDate)
-  income <- xts(x = income[,-1], order.by = income$endDate)
-  ret <- merge.xts(income, investment_income, all = TRUE)
-  return(ret)
-}
 
-# create a time series with share buy back and estimated buy back prices
-brkb_shr_buybacks_analysis <- function(st){
-  library(dplyr)
-  library(xts)
-  cf <- st[[4]]
-  cf <- cf |> select_if(~ any(!is.na(.)) & any(. != 0))
-  equity_p_and_s <- cf[,c("startDate", "endDate", 
-                          "PaymentsToAcquireEquitySecuritiesFvNi",
-                          "ProceedsFromSaleOfEquitySecuritiesFvNi",
-    "brka_ProceedsFromSalesAndRedemptionsOfAvailableForSaleSecuritiesEquitySecurities",
-    "brka_ProceedsFromSalesAndRedemptionsOfEquitySecurities",
-    "PaymentsForRepurchaseOfCommonStock",
-    "brka_PaymentsToAcquireEquitySecurities",
-    "brka_ProceedsFromSalesOfEquitySecurities",
-    "PaymentsToAcquireAvailableForSaleSecuritiesEquity")]
-  
-  browser()
-  
-}
+
 
 
 
@@ -649,36 +703,3 @@ check_elementnames <- function(xbrl, fix = FALSE){
 }
 
 
-brkb_bs_statement <- function(xbrl.vars){
-  # largely based on sample code from:
-  # https://github.com/bergant/XBRLFiles 
-  source("./scripts/finstr/finstr.R")
-  source("./scripts/finstr/10Q_10K_functions.R")
-  
-  statement_ids <- xbrl_get_statement_ids_WB(xbrl.vars) 
-  browser()
-  is <- xbrl_get_statements_WB(xbrl_vars = xbrl.vars, role_ids = statement_ids$roleId[2],
-                               complete_first = FALSE)
-  is <- is[[1]]
-  bs <-xbrl_get_statements_WB(xbrl_vars = xbrl.vars, role_ids = statement_ids$roleId[1],
-                              complete_first = FALSE)
-  bs <- bs[[1]]
-  browser()
-  # is <- statement(xbrl.vars, statement_ids$roleId[2])
-  
-  st <- xbrl_get_statements(xbrl.vars, complete_first = FALSE)
-  
-  statement_ids <- xbrl_get_statement_ids_WB(xbrl.vars) 
-  
-  
-  st_w_context <- NULL
-  for (i in 1:length(st)){
-    context <- xbrl.vars$context |> select(contextId, value1)
-    ind <- match(st[[i]]$contextId, context$contextId)
-    st_w_context[[i]] <- cbind(context[ind, "value1"], st[[i]])
-    names(st_w_context[[i]])[1] <- "entity"
-    browser()
-    st_w_context[[i]] <- st_w_context[[i]] |> dplyr::filter(entity %in% c(NA, "brka:InsuranceAndOtherMember", 
-                                                                          "brka:RailroadUtilitiesAndEnergyMember"))
-  }
-}

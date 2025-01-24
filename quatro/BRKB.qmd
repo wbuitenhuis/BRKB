@@ -173,4 +173,17 @@ caption <- paste("profits =",
       main.timespan = FALSE)
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+Balance sheet and cashflow statement gices the folowing graphs:
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(xts)
+library(ggplot2)
+
+  plot(data$PnL + data$depreciation - data$plant_and_equipment,
+            yaxis.right = FALSE,
+      main = "Free cashflow",
+      main.timespan = FALSE)
+
+```
