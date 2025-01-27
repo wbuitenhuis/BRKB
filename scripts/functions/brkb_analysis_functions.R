@@ -3,8 +3,9 @@
 
 
 brkb_statements <- function(form = "10-Q", years = 13, 
-                            filename = "BRKB_statements",
-                            arc = "presentation"){
+                            filename = "BRKB_statements.RData",
+                            arc = "presentation",
+                            parent_only = FALSE){
   # 1.) obtain CIK
   # 2.) download 10-Q and 10-K links
   # 3.) For each 10)Q form, download xbrl instance and xbrl schema
@@ -23,18 +24,20 @@ brkb_statements <- function(form = "10-Q", years = 13,
   }
   add_is2 <- TRUE
   # needed to update existing file
-  if (file.exists(paste0("./data/", filename, ".RData"))){
-    load(paste0("./data/", filename, ".RData"))
+  if (file.exists(paste0("./data/", filename))){
+    load(paste0("./data/", filename))
   }
-  object_names <- c("st_all_10Q", "st_parent_10Q", "st_all_10K", "st_parent_10K")
+  # object_names <- c("st_all_10Q", "st_parent_10Q", "st_all_10K", "st_parent_10K")
+  object_names <- c("st_all_10Q", "st_all_10K")
   for (i in 1:length(object_names)){
     if (!exists(object_names[i])){
       assign(object_names[i], 0)
     }
   }
   
+  if (!exists("shares_outstanding")) hares_outstanding <- NULL
+  
   for (i in 1:min(n, length(filing_urls))){
-    # if (i == 14) browser()
     if (sum(is.na(filing_urls) > 0)) browser()
     if (nchar(filing_urls[i]) < 5 | is.na(filing_urls[i])) browser()
     xml_filenames <- edgar_xbrl_URLs(paste0("https://www.sec.gov", filing_urls[i]),
@@ -45,9 +48,10 @@ brkb_statements <- function(form = "10-Q", years = 13,
     print(paste("i = ", i, "XML file:", xml_filenames[1]))
     
     xbrl <- parse_xbrl(xml_filenames, cache_dir = "xbrl/cache_dir/")
-    # xbrl <- check_elementnames(xbrl, fix = TRUE)
     xbrl$fact <- remove_duplicated_facts(xbrl$fact)
-    # if (i == 46) browser()
+    shrs <- outstanding_shares(xbrl)
+    shares_outstanding <- rbind(shares_outstanding, shrs)
+    shares_outstanding <- shares_outstanding[!duplicated(shares_outstanding), ]
     st <- xbrl_get_statements_WB(xbrl_vars = xbrl, 
                                  lbase = arc,
                                  complete_first = FALSE, 
@@ -56,58 +60,32 @@ brkb_statements <- function(form = "10-Q", years = 13,
                                  nonzero_only = TRUE,
                                  regular_sec_reporting_periods = TRUE,
                                  nr_periods = 2)
-    # browser() 
-    remove_error_p <- FALSE
     remove_error_a <- FALSE
     if (i == 1){
-      st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
-      st_all <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = FALSE)
-      class(st_parent) <- class(st_all) <- "statements"
-      n_parent <- length(st_parent)
+      # st_parent <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
+      st_all <- lapply(st, clean_BRKB_statement, parent_only = parent_only, filter = FALSE)
+      class(st_all) <- "statements"
+      # class(st_parent) <- "statements"
+      # n_parent <- length(st_parent)
       n_all <- length(st_all)
     } else {
-      # if (sum(names(st_parent[[3]]) %in% names(st_parent[[4]])) > 20) browser()
-      st_parent_i <- lapply(st, clean_BRKB_statement, parent_only = TRUE, filter = TRUE)
-      st_all_i <- lapply(st, clean_BRKB_statement, parent_only = FALSE, filter = TRUE)
-      class(st_parent_i) <- class(st_all_i) <- "statements"
+      st_all_i <- lapply(st, clean_BRKB_statement, parent_only = parent_only, filter = TRUE)
+      class(st_all_i) <- "statements"
       if (sum(lapply(st_all_i, class) |> unlist() == "WB error") == length(st_all_i)){
         print(paste("There are no statements for i", i))
         # only errors, nothing to merge.
         next
       }
-      # if (i == 47) browser()
-      st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
       st_all_i <- statements_in_same_order(st_all, st_all_i)
-      if ("WB error" %in% lapply(st_parent_i, class)){
-        #browser()
-        remove_error_p <- TRUE
-        ind_error_p <- sapply(st_parent_i, function(x) "WB error" %in% class(x))
-        remove_p_i <-  st_parent_i[ind_error_p]
-        remove_p <- st_parent[ind_error_p]
-        #names(st_parent_i) <- names(st_parent)
-        st_parent_i <- st_parent_i[!ind_error_p]
-        st_parent <- st_parent[!ind_error_p]
-        class(st_parent_i) <- class(st_parent) <- "statements"
-      } 
       if ("WB error" %in% lapply(st_all_i, class)){
         remove_error_a <- TRUE
         ind_error_a <- sapply(st_all_i, function(x) "WB error" %in% class(x))
         remove_a_i <- st_all_i[ind_error_a]
         remove_a <-  st_all[ind_error_a]
-        # names(st_all_i) <- names(st_all)
         st_all_i <- st_all_i[!ind_error_a]
         st_all <- st_all[!ind_error_a]
         class(st_all_i) <- class(st_all) <- "statements"
       } 
-      if (length(st_parent_i) > n_parent){
-         if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent_i)){
-           add_is2 <- TRUE
-           IS2_parent <- st_parent_i[["StatementConsolidatedStatementsOfEarnings2"]]
-           st_parent_i$StatementConsolidatedStatementsOfEarnings2 <- NULL
-         } else {
-           browser()
-         }
-      }
       if (length(st_all_i) > n_all){
          if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all_i)){
            add_is2 <- TRUE
@@ -118,17 +96,7 @@ brkb_statements <- function(form = "10-Q", years = 13,
            browser()
          }
       }
-      if (length(st_parent_i) < n_parent){
-        if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_parent)){
-          add_is2 <- TRUE
-          IS2_parent <- st_parent[["StatementConsolidatedStatementsOfEarnings2"]]
-          st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- NULL
-        } else {
-          # browser()
-        }
-        # statements2excel(st_parent_i)
-      }
-      if (length(st_all_i) < n_parent){
+      if (length(st_all_i) < n_all){
         if ("StatementConsolidatedStatementsOfEarnings2" %in% names(st_all)){
           add_is2 <- TRUE
           IS2_all <- st_all[["StatementConsolidatedStatementsOfEarnings2"]]
@@ -137,42 +105,15 @@ brkb_statements <- function(form = "10-Q", years = 13,
           # browser()
         }
       }
-      # different_names <- names(st_parent) != names(st_parent_i)
-      # if (length(st_parent) <  4) browser()
-      # if (sum(different_names) > 0){
-       
-        #st_parent_i <- statements_in_same_order(st_parent, st_parent_i)
-      #  st_parent_i <- compare_statement_names(st_parent, st_parent_i)
-      #}
-      # different_names <- names(st_all) != names(st_all_i)
-      # if (sum(different_names) > 0){
-        # st_all_i <- statements_in_same_order(st_all, st_all_i)
-      #   st_all_i <- compare_statement_names(st_all, st_all_i)
-      # }
-      # if (min(as.Date(st_all_10Q[[2]]$endDate)) == as.Date("2009-09-30")) browser() 
-      # if (i == 14) browser()
-      
-      st_parent <- merge.statements(st_parent, st_parent_i, replace_na = TRUE,
-                                    remove_dupes = TRUE, keep_first = TRUE)
       st_all <- merge.statements(st_all, st_all_i, replace_na = FALSE,
                                  remove_dupes = TRUE, keep_first = TRUE)
       if (add_is2){
-        st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_parent
+      #  st_parent[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_parent
         st_all[["StatementConsolidatedStatementsOfEarnings2"]] <- IS2_all
-      }
-      if (remove_error_p){
-        ind_error_p <- which(ind_error_p)
-        for (j in 1:length(ind_error_p)){
-          st_parent_i <- append(st_parent_i, remove_p_i[j], 
-                                after = ind_error_p[j]-1)
-          st_parent <- append(st_parent, remove_p[j], 
-                                after = ind_error_p[j]-1)
-          class(st_parent_i) <- class(st_parent) <- "statements"
-        }
       }
       if (remove_error_a){
         ind_error_a <- which(ind_error_a)
-        for (j in 1:length(ind_error_p)){
+        for (j in 1:length(ind_error_a)){
           st_all_i <- append(st_all_i, remove_a_i[j], 
                              after = ind_error_a[j]-1)
           st_all <- append(st_all, remove_a[j], 
@@ -184,15 +125,16 @@ brkb_statements <- function(form = "10-Q", years = 13,
     add_is2 <- FALSE
     if (form == "10-Q"){
       st_all_10Q <- st_all
-      st_parent_10Q <- st_parent
+    #  st_parent_10Q <- st_parent
     } else {
       st_all_10K <- st_all
-      st_parent_10K <- st_parent
+    #  st_parent_10K <- st_parent
     }
-    n_parent <- length(st_parent)
     n_all <- length(st_all)
-    save(st_all_10Q, st_parent_10Q, st_all_10K, st_parent_10K,
-         file = paste0("./data/",filename, ".RData"))
+    dupes <- duplicated(shares_outstanding)
+    shares_outstanding <- shares_outstanding[!dupes, ]
+    save(st_all_10Q, st_all_10K, shares_outstanding,
+        file = paste0("./data/",filename))
   }
   print("Done")
 }
@@ -243,10 +185,6 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   if (filter){
     st_temp <- st# can remove is for debugging
     st <- st |> dplyr::filter(value1 %in% members)
-    # if (nrow(st) == 0){
-    #   print(paste("filter removed all entries. Will disable filter for this statement"))
-    #   st <- st_temp
-    # }
   }
   if (nrow(st) == 0){
     ret <- "no valid observations after applying member filter"
@@ -264,7 +202,6 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
   } 
   st <- do.call(rbind, st_l)
   if (is.null(st)) browser()
-  # browser()
   return(st)
 }
 
@@ -274,7 +211,7 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
 # energy
 # rail roads
 # investment gains
-run_brkb_analysis <- function(st10Q, st10K){
+run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
   library(dplyr)
   library(xts)
   
@@ -375,7 +312,6 @@ run_brkb_analysis <- function(st10Q, st10K){
                                "InsuranceUnderwritingExpenses",
                                "IncurredClaimsPropertyCasualtyAndLiability",
                                "PolicyHolderBenefitAndClaimsIncured")]
-    # insurance <- xts(x = insurance[,-1], order.by = insurance$endDate)
     names(insurance) <- c("endDate", "InsPremiumsEarned", "InsUnderwritingExpenses", 
                           "ClaimsPropertyLiability", "PolicyHolderBenefits")
     insurance <- insurance |> 
@@ -389,18 +325,15 @@ run_brkb_analysis <- function(st10Q, st10K){
                       "OperatingLeasesIncomeStatementLeaseRevenue",
                       "brka_CostOfLeasing")]
     leasing <- leasing |> filter(value1 == "brka:InsuranceAndOtherMember")
-    # browser()
     leasing$OperatingLeaseLeaseIncome <- apply(leasing[, 
               c("OperatingLeaseLeaseIncome", "OperatingLeasesIncomeStatementLeaseRevenue")],
               1, sum, na.rm = TRUE)
     leasing <- leasing[, c("endDate", "OperatingLeaseLeaseIncome", 
                            "brka_CostOfLeasing")]
-    # leasing <- xts(x = leasing[,3:4], order.by = leasing$endDate)
     names(leasing) <- c("endDate", "LeaseIncome", "CostOfLeasing")
 
     leasing <- leasing |> 
       dplyr::filter(dplyr::if_any(c(LeaseIncome, CostOfLeasing), ~ . != 0 & !is.na(.)))
-    # RevenueFromContractWithCustomerIncludingAssessedTax does not exists in 10K
     service <- ins[,c("endDate", "value1","brka_SalesAndServiceRevenue",
                       "RevenueFromContractWithCustomerIncludingAssessedTax", 
                       "RevenueFromContractWithCustomerExcludingAssessedTax", 
@@ -416,8 +349,6 @@ run_brkb_analysis <- function(st10Q, st10K){
     service <- service |> 
       dplyr::filter(dplyr::if_any(c(ServiceRevenue, CostOfServices),
                                   ~ . != 0 & !is.na(.)))
-    # service <- xts(x = service[,-1], order.by = service$endDate)
-    
     investment1 <- ins[,c("endDate", "value1", "brka_InvestmentIncomeInterestDividendAndOther",
                           "InvestmentIncomeInterestAndDividend", "InterestExpense")]
     investment1 <- investment1 |> filter(value1 == "brka:InsuranceAndOtherMember")
@@ -428,7 +359,6 @@ run_brkb_analysis <- function(st10Q, st10K){
     investment1 <- investment1 |> 
       dplyr::filter(dplyr::if_any(c(InvestmentIncomeInterestAndDividend, InterestExpense),
                                   ~ . != 0 & !is.na(.)))
-    
     investment <- is[c("endDate", "value1", "NonoperatingIncomeExpense",
                        "NonoperatingGainsLosses",
                        "GainLossOnInvestments",
@@ -450,7 +380,6 @@ run_brkb_analysis <- function(st10Q, st10K){
     investment <- merge(investment, investment1, all = TRUE)
     names(investment) <- c("endDate", "InvestmentGains", "EquityMethodIncome", 
                            "InterestDividendIncome", "InterestExpense")
-    # investment <- xts(x = investment[,-1], order.by = investment$endDate)
     
     other_costs_ins <- ins["SellingGeneralAndAdministrativeExpense"]
     interest_exp_infra <- "InterestExpense"
@@ -469,10 +398,7 @@ run_brkb_analysis <- function(st10Q, st10K){
     library(dplyr)
     st <- st[,-1]
     st$endDate <- as.Date(st$endDate)
-    # should instead filter with value = NA
     st <- st |> filter(is.na(value1) | value1 == 0)
-    # st <- st |> group_by(startDate, endDate, value1) |> summarise(across(everything(), sum))
-    #st <- st |> select_if(~ any(!is.na(.)) & any(. != 0))
     equity_p_and_s <- st[,c("startDate", "endDate", 
                             "PaymentsToAcquireEquitySecuritiesFvNi",
                             "brka_PaymentsToAcquireEquitySecurities",
@@ -551,7 +477,6 @@ run_brkb_analysis <- function(st10Q, st10K){
     return(bs)
   }
   
-  
   run_cashflow_or_income_analysis <- function(st10Q, st10K, analysis = "IS"){
     if (analysis == "IS"){
       st10Q <- st10Q[[2]]
@@ -609,23 +534,102 @@ run_brkb_analysis <- function(st10Q, st10K){
     data12M <- xts(x = data12M[, -1], order.by = data12M$endDate)
     return(list(data3M, data12M))
   }
-  # browser()
+  
+  # add data on number of outstanding shares
+  func_nr_shares <- function(shares_outstanding){
+    shares_outstanding$fact <- as.numeric(shares_outstanding$fact)
+    shares_outstanding$startDate <- as.Date(shares_outstanding$startDate)
+    shares_outstanding$endDate <- as.Date(shares_outstanding$endDate)
+    shares_outstanding <- shares_outstanding |> dplyr::arrange(endDate, startDate)
+    common_shrs <- shares_outstanding |> dplyr::filter(elementId == 
+                                       "us-gaap_CommonStockSharesOutstanding")
+    common_shrs <- common_shrs[, -1]
+    common_shrs <- common_shrs |> tidyr::pivot_wider(values_from = fact, names_from = value1)
+    common_shrs <- common_shrs[, c("endDate",
+                                   "us-gaap:CommonClassAMember",
+                                   "us-gaap:CommonClassBMember",
+                                   "brka:EquivalentClassAMember")]
+    names(common_shrs) <- c("endDate", "a_shrs", "b_shrs", "a_equiv_shrs")
+    ind <- is.na(common_shrs$a_equiv_shrs)
+    common_shrs$a_equiv_shrs[ind] <- common_shrs$a_shrs[ind] + common_shrs$b_shrs[ind] / 1500
+    common_shrs <- xts(x = common_shrs[,-1], order.by = as.Date(common_shrs$endDate))
+    weighted_shrs <- shares_outstanding |> dplyr::filter(!is.na(startDate) & 
+             elementId == "us-gaap_WeightedAverageNumberOfSharesOutstandingBasic")
+    ind <- weighted_shrs$fact / 10^11 > 1
+    weighted_shrs$fact[ind] <-  weighted_shrs$fact[ind]/10^6
+    dupes <- duplicated(weighted_shrs[,-5])
+    weighted_shrs <- weighted_shrs[!dupes, ]
+    weighted_shrs <- weighted_shrs |> tidyr::pivot_wider(values_from = fact, names_from = value1)
+    ind <- is.na(weighted_shrs$`brka:EquivalentClassAMember`)
+    weighted_shrs$`brka:EquivalentClassAMember`[ind] <- weighted_shrs$`us-gaap:CommonClassAMember`[ind]
+    ind <- is.na(weighted_shrs$`brka:EquivalentClassAMember`)
+    weighted_shrs$`brka:EquivalentClassAMember`[ind] <- weighted_shrs$`NA`[ind]
+    weighted_shrs <- weighted_shrs[,c("startDate","endDate","brka:EquivalentClassAMember")]
+    names(weighted_shrs)[3] <- "weighted_a_shrs"
+    period <- lubridate::month(weighted_shrs$endDate) - 
+      lubridate::month(weighted_shrs$startDate)
+    shrs3M <- weighted_shrs[period == 2, ]
+    shrs12M <- weighted_shrs[period == 11, ]
+    shrs9M <- weighted_shrs[period == 8, ]
+    eoy <- lubridate::ceiling_date(shrs9M$endDate, "year") - lubridate::days(1)
+    shrs9M <- shrs9M[eoy %in% shrs12M$endDate,]
+    eoy <- lubridate::ceiling_date(shrs9M$endDate, "year") - lubridate::days(1)
+    ind <- match(eoy, shrs12M$endDate)
+    shrsQ4 <- (shrs12M$weighted_a_shrs[ind] - 0.75 * shrs9M$weighted_a_shrs) * 4
+    shrsQ4 <- data.frame(endDate = eoy, weighted_a_shrs = shrsQ4)
+    names(shrsQ4)[1] <- "endDate"
+    shrs3M <- shrs3M[,-1]
+    shrs3M <- rbind(shrs3M, shrsQ4)
+    shrs3M <- xts(x = shrs3M$weighted_a_shrs, order.by = shrs3M$endDate)
+    names(shrs3M) <- "avg_a_equiv_shrs"
+    shrs3M <- merge.xts(common_shrs, shrs3M, all = TRUE)
+    common_shrs <- common_shrs[format(index(common_shrs), "%m-%d") == "12-31"]
+    shrs12M <- xts(x = shrs12M$weighted_a_shrs, order.by = shrs12M$endDate)
+    names(shrs12M) <- "avg_a_equiv_shrs"
+    shrs12M <- merge.xts(common_shrs, shrs12M, all = TRUE)
+    return(list(shrs3M, shrs12M))
+  }
+  
   is_figures <- run_cashflow_or_income_analysis(st10Q, st10K, analysis = "IS")
   cf_figures <- run_cashflow_or_income_analysis(st10Q, st10K, analysis = "CF")
   bs_figures <- run_cashflow_or_income_analysis(st10Q, st10K, analysis = "BS")
+  nr_shares <- func_nr_shares(shares_outstanding)
   data3M <- merge(is_figures[[1]], cf_figures[[1]])
   data3M <- merge(data3M, bs_figures[[1]])
+  data3M <- merge(data3M, nr_shares[[1]])
   data12M <- merge(is_figures[[2]], cf_figures[[2]])
   data12M <- merge(data12M, bs_figures[[2]])
+  data12M <- merge(data12M, nr_shares[[2]])
   
   save(data3M, data12M, file = "./data/BRKB_income_bu.Rdata")
 }
 
-
-
-
-
-
+# find common shares outstanding
+# find weighted number of shares outstanding
+outstanding_shares <- function(xbrl){
+  # browser()
+  # #matching_facts <- xbrl$fact |> dplyr::filter(unitId == "U_shares")
+  # matching_facts <- xbrl$fact
+  # matching_facts <- matching_facts |> dplyr::left_join(xbrl$context, by = dplyr::join_by(contextId))
+  # matching_facts <- matching_facts |> dplyr::left_join(xbrl$label, by = dplyr::join_by(elementId))
+  # ind <- stringr::str_detect(tolower(matching_facts$elementId), pattern = "outstanding") |
+  #   stringr::str_detect(tolower(matching_facts$labelString), pattern = "outstanding")
+  # matching_facts <- matching_facts[ind, ]
+  # matching_facts <- matching_facts[!duplicated(matching_facts$factId), ]
+  # matching_facts <- matching_facts |> dplyr::filter(unitId == "U_shares")
+  # 
+  
+  ind_element <- stringr::str_detect(tolower(xbrl$fact$elementId), pattern = "outstanding")
+  ind_element[is.na(ind_element)] <- FALSE
+  matching_facts <- xbrl$fact[ind_element, ]
+  matching_facts <- matching_facts |> dplyr::left_join(xbrl$context, by = dplyr::join_by(contextId))
+  matching_facts <- matching_facts |> dplyr::filter(stringr::str_detect(unitId, "shares"))
+  # matching_facts <- matching_facts |> dplyr::filter(value1 == "brka:EquivalentClassAMember")
+  matching_facts <- matching_facts |> dplyr::select(c("elementId", 
+                                                      "startDate", "endDate", 
+                                                      "value1", "fact"))
+  return(matching_facts)
+}
 
 elements2excel <- function(el, file = "el.xlsx"){
   excel_filename <- file
@@ -652,54 +656,5 @@ statements2excel <- function(st, file = "statements.xlsx"){
   options("openxlsx.numFmt" = NULL)  
 }
 
-check_elementnames <- function(xbrl, fix = FALSE){
-  # Checks foreElements name that end on a digit, while there is no apparent reason for it 
-  # If fix = TRUE, wil remove last character from element name.
-  # Input is a parsed xbrl object
-  sus_elements <- function(element_names){
-    # sus element if:
-    # 1.) last character is a digit
-    # 2.) element without last character does not exists
-    element_names <- element_names |> unique() 
-    ind <- last_char_is_num(element_names)
-    sus_elements <- element_names[ind]
-    alt_elements <- stringr::str_sub(sus_elements, end = -2)
-    ind <- alt_elements %in% element_names
-    sus_elements <- sus_elements[!ind]
-    return(sus_elements)
-  }
-  
-  update_elements <- function(elements, mapping){
-    ind <- match(elements, mapping$org)
-    new <- mapping$new[ind]
-    return(new)
-  }
-  
-  sus_fact <- sus_elements(xbrl$fact$elementId)
-  sus_element <- sus_elements(xbrl$element$elementId)
-  sus_calc_from <- sus_elements(xbrl$calculation$fromElementId)
-  sus_calc_to <- sus_elements(xbrl$calculation$toElementId)
-  if (fix == FALSE){
-    return(list(sus_facts = sus_fact, 
-                sus_elements = sus_element,
-                sus_calc_from = sus_calc_from,
-                sus_calc_to = sus_calc_to))
-  } else {
-    print(paste("Found", length(sus_calc_from) + length(sus_calc_to), "suspected elements in calculations."))
-    print(paste("Found", length(sus_fact), "suspected elements in facts."))
-    rep_element <- stringr::str_sub(sus_element, end = -2)
-    mapping <- data.frame(org = sus_element, new = rep_element)
-    xbrl$element$elementId <- xbrl$element$elementId |> update_elements(mapping = mapping)
-    xbrl$label$elementId <- xbrl$label$elementId |> update_elements(mapping = mapping)
-    xbrl$presentation$fromElementId <- xbrl$presentation$fromElementId |> update_elements(mapping = mapping)
-    xbrl$presentation$toElementId <- xbrl$presentation$toElementId |> update_elements(mapping = mapping)
-    xbrl$definition$fromElementId <- xbrl$definition$fromElementId |> update_elements(mapping = mapping)
-    xbrl$definition$toElementId <- xbrl$definition$toElementId |> update_elements(mapping = mapping)
-    xbrl$calculation$fromElementId <- xbrl$calculation$fromElementId |> update_elements(mapping = mapping)
-    xbrl$calculation$toElementId <- xbrl$calculation$toElementId |> update_elements(mapping = mapping)
-    xbrl$fact$elementId <- xbrl$fact$elementId |> update_elements(mapping = mapping)
-    return(xbrl)
-  }
-}
 
 

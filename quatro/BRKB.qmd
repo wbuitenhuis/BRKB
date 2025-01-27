@@ -44,6 +44,8 @@ library(xts)
 library(ggplot2)
 load("../data/BRKB_income_bu.Rdata")
 data <- data3M
+data$avg_a_equiv_shrs[is.na(data$avg_a_equiv_shrs)] <- data$a_equiv_shrs[is.na(data$avg_a_equiv_shrs)]
+data$a_equiv_shrs[is.na(data$a_equiv_shrs)] <- data$avg_a_equiv_shrs[is.na(data$a_equiv_shrs)]
 data_graph <- data.frame(date = index(data), data)
 data_graph$t <- round((as.numeric(index(data) - last(index(data)))) / 365.25, digits = 2)
 
@@ -104,11 +106,6 @@ caption <- paste("ln[premiums - underwriting expenses] =",
               color = "darkred") +  
   theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
    theme_minimal() 
-  
-  plot(data$InsPremiumsEarned - data$InsUnderwritingExpenses - data$ClaimsPropertyLiability - data$PolicyHolderBenefits,
-            yaxis.right = FALSE,
-      main = "Insurance Gross Profits",
-      main.timespan = FALSE)
 
 ols_ins_profit <- lm((InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability- PolicyHolderBenefits)/ 10^9 ~ t, data = data_graph)
 caption <- paste("profits =", 
@@ -125,7 +122,7 @@ caption <- paste("profits =",
 #    name = "$",                      # Primary y-axis label
 #    sec.axis = sec_axis(~ 10log(.),             # Transformation for the secondary y-axis
 #                        name = "10 log") ) +  # Secondary y-axis label
-     labs(title = "Insurance profits", x = "",
+     labs(title = "Insurance gross profits", x = "",
     y = "billion $",
     caption = caption) +
    geom_smooth(method = "lm",           # Add OLS fit
@@ -181,9 +178,53 @@ Balance sheet and cashflow statement gices the folowing graphs:
 library(xts)
 library(ggplot2)
 
-  plot(data$PnL + data$depreciation - data$plant_and_equipment,
+  plot((data$PnL + data$depreciation - data$plant_and_equipment)/ (1500* data$avg_a_equiv_shrs),
             yaxis.right = FALSE,
-      main = "Free cashflow",
+      main = "Free cashflow per share",
+      main.timespan = FALSE)
+  
+  plot((data$PnL - data$investment_gains)/ (1500* data$avg_a_equiv_shrs),
+            yaxis.right = FALSE,
+      main = "Opperating profit per share",
       main.timespan = FALSE)
 
+    plot((data$PnL - data$InvestmentGains - data$EquityMethodIncome - data$InterestDividendIncome + data$InterestExpense)/ (1500* data$avg_a_equiv_shrs),
+            yaxis.right = FALSE,
+      main = "Opperating profit per share",
+      main.timespan = FALSE)
+  plot((data$cash_equiv)/ (1500* data$avg_a_equiv_shrs),
+            yaxis.right = FALSE,
+      main = "Cash equivalence per share",
+      main.timespan = FALSE)
+  
+  plot((data$StockholdersEquity)/ (1500* data$avg_a_equiv_shrs),
+            yaxis.right = FALSE,
+      main = "equity per share",
+      main.timespan = FALSE)
+  
+  plot((data$m2m_equities)/ (1500* data$avg_a_equiv_shrs),
+            yaxis.right = FALSE,
+      main = "marketable securities per share",
+      main.timespan = FALSE)
+  
+  plot(data$equities_at_cost / (1500* data$avg_a_equiv_shrs),
+      yaxis.right = FALSE,
+      main = "securities at cost per share",
+      main.timespan = FALSE)
+
+      plot((data$equity_purchases - data$equity_sales) / (1500* data$avg_a_equiv_shrs),
+      yaxis.right = FALSE,
+      main = "Net investments in securities per share",
+      main.timespan = FALSE)
+    
+      plot((data$PaymentsForRepurchaseOfCommonStock) / (1500* data$avg_a_equiv_shrs),
+      yaxis.right = FALSE,
+      main = "stock buybacks per share",
+      main.timespan = FALSE)
+      
+      plot((data$a_equiv_shrs[-1] - lag.xts(data$a_equiv_shrs, k = -1)) / (1500* data$avg_a_equiv_shrs),
+      yaxis.right = FALSE,
+      main = "%shares bought back",
+      main.timespan = FALSE)
+      
 ```

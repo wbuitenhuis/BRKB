@@ -138,39 +138,21 @@ source("./scripts/functions/brkb_analysis_functions.R")
 # rm(list = ls())
 #load(file = "./data/test2y.RData")
 
+# source("./scripts/functions/10Q_10K_functions.R")
+# find_specific_fact(url = "https://www.sec.gov/Archives/edgar/data/1067983/000119312518057033/0001193125-18-057033-index.htm", pattern = "outstanding", field = "label")
+# 
+# f <- find_specific_fact(url = "https://www.sec.gov/Archives/edgar/data/1067983/000119312518057033/0001193125-18-057033-index.htm", pattern = "1,?644,?615", field = "fact")
+# 
+
 source("./scripts/functions/brkb_analysis_functions.R")
+# debugonce(brkb_statements)
 brkb_statements(form = "10-K", years = 15, arc = "presentation")
 source("./scripts/functions/brkb_analysis_functions.R")
 brkb_statements(form = "10-Q", years = 17, arc = "presentation")
 
-# sink()
-print("done")
-
-# load(file = "./data/BRKB_statements.RData")
-# # tidyr::pivot_longer(st_all[[2]], names_to = "bu", )
-# statements2excel(st_all, file = "statement1.xlsx")
-# statements2excel(st_parent, file = "statement.xlsx")
-
 load(file = "./data/BRKB_statements.RData")
 source("./scripts/functions/brkb_analysis_functions.R")
-run_brkb_analysis(st_all_10Q, st_all_10K)
+run_brkb_analysis(st_all_10Q, st_all_10K, shares_outstanding)
 
 load(file = "./data/BRKB_income_bu.Rdata")
 
-load(file = "./data/BRKB_statements.RData")
-source("./scripts/functions/brkb_analysis_functions.R")
-brkb_bs_analysis(st_parent_10K)
-
-brkb_cf_analysis(st_parent_10K)
-plot(income$ProfitLoss - income$GainLossOnInvestments)
-
-source("./scripts/functions/10Q_10K_functions.R")
-source("./scripts/functions/brkb_analysis_functions.R")
-#2009-09-30 insurance premiums 6,595
-missing_fact <- find_specific_fact(url = 
-  "https://www.sec.gov/Archives/edgar/data/1067983/000115752309007839/0001157523-09-007839-index.htm", 
-                   fact = "6,?595", clean = TRUE)
-is <- st_all_10Q[[2]]
-is <- is[is$endDate == "2013-03-31",]
-is <- is[is$startDate == "2013-01-01",]
-# shows up at parent level, weird
