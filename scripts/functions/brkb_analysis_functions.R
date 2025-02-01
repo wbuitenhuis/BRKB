@@ -35,7 +35,7 @@ brkb_statements <- function(form = "10-Q", years = 13,
     }
   }
   
-  if (!exists("shares_outstanding")) hares_outstanding <- NULL
+  if (!exists("shares_outstanding")) shares_outstanding <- NULL
   
   for (i in 1:min(n, length(filing_urls))){
     if (sum(is.na(filing_urls) > 0)) browser()
@@ -614,6 +614,7 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding, portfolio = NULL
   stockprices$Date <- as.Date(stockprices$Date)
   stockprices$Date <- stockprices$Date |> lubridate::ceiling_date("month") - lubridate::days(1)
   stockprices <- stockprices[!duplicated(stockprices$Date), ]
+  names(stockprices) <- names(stockprices) |> stringr::str_trim(side = "both")
   stockprices <- xts(x = stockprices$Close, order.by = stockprices$Date)
   names(stockprices) <- "share_price"
   data3M <- merge(data3M, stockprices, all = FALSE)
@@ -624,7 +625,6 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding, portfolio = NULL
   } else if (last(index(portfolio)) < Sys.Date() - lubridate::days(1)){
     portfolio <- add_portfolio_valuation(data3M)
   }
-  browser()
   save(data3M, data12M, portfolio, file = "./data/BRKB_income_bu.Rdata")
 }
 

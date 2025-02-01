@@ -7,24 +7,16 @@ editor: visual
 
 ## Intro
 
-Key questions I want to address:
--   Is Berkshire a good capital allocator?
--   Is Berkshire a good operator?
--   Is Berkshire a buy, a sell, or a hold?
+Key questions I want to address: - Is Berkshire a good capital allocator? - Is Berkshire a good operator? - Is Berkshire a buy, a sell, or a hold?
 
 To determine if it is a good operator we need to look at the individual business units:
 
-Insurance:
-    -   How does the profit margin evolve?
-    -   What is the (long term) growth rate of profits?
-    -   How do underwriting expenses evolve?
-    -   What has been driving changes in profits? Changes in underwriting expenses, premium rates, or more business?
+Insurance: - How does the profit margin evolve? - What is the (long term) growth rate of profits? - How do underwriting expenses evolve? - What has been driving changes in profits? Changes in underwriting expenses, premium rates, or more business?
 
 -   How is the railway business doing:
     -   How does the profit margin evolve?
     -   What is the long term growth rate of profits?
     -   What drive changes in profits? Is it driven by profit margin, or overall growth of the business?
-
 -   How is the energy business doing?
     -   How does the profit margin evolve?
     -   What is the long term growth rate of profits?
@@ -34,16 +26,11 @@ For the insurance business, we see that it is doing great and grows on average b
 
 For the other business I currently do not have enough data to make conclusions on long term trends. I suspect the railway business is somewhat under performing. Data for the railway business can be downloaded from the SEC website, I haven't gotten to it yet. It maybe that the SEC website has also more data on the energy business, but I have not really looked for it. However we do know that BNSF (the railroad subsidiary) saw their coal transport business decline due to the closure of coal plants. This was a significant part of their business. We also know that they are less efficient in their operations than competitors. They have a efficiency ratio of more than 70%, while competitors are around 65%. This however is likely caused by an increase in efficiency by competitors that is not matched by BNSF. BNSF has a potential upside by improving their efficency to match that of competitors.
 
--   What is the expected profit growth rate for all operational business going forward?
-The long term growth rate is 7%. This the number I would work with today, but can be refined with further analysis.
+-   What is the expected profit growth rate for all operational business going forward? The long term growth rate is 7%. This the number I would work with today, but can be refined with further analysis.
 
--   Is Berkshire a good capital allocator?
-I have not done this analysis yet. Before 2018, a large chunk of the investment results showed only up in comprehensive income. I need to incorporate this in the results. It does seem that share buy backs happen more frequently when the valuation is low. There is certain evidence that Berkshire tries to time the market. Currently they have cash holdings close to the all time high, although it has been this high before.
+-   Is Berkshire a good capital allocator? I have not done this analysis yet. Before 2018, a large chunk of the investment results showed only up in comprehensive income. I need to incorporate this in the results. It does seem that share buy backs happen more frequently when the valuation is low. There is certain evidence that Berkshire tries to time the market. Currently they have cash holdings close to the all time high, although it has been this high before.
 
--   If you back out the public investments is Berkshire priced attractive?
-Currently the implied PE of the operational business is 22.3. This is the all time high. However I used a fitted PE, and not the actual PE. If for instance the insurance business went through some structural improvements over the last 2-3 years, I may underestimate the EPS which would feed into an overestimation of the PE.
-Regardless, it seems safe to say that it is currently expensive if you look at it from an historic perspective. It is not necessarily crazy expensive if you assume an underlying growth rate of the operational business of 7% and average capital allocation decisions. In addition they have so much cash at hand that you could expect Berkshire to start buying back shares if there would be a substantial price decrease. Overall I see limited upside, but also not extreme downside at the current levels. 
-A possible play could be to short options on Berkshire and create a short volatility position. This could possibly hedge with long options in the portfolio of stocks Berkshire owns.
+-   If you back out the public investments is Berkshire priced attractive? Currently the implied PE of the operational business is 22.3. This is the all time high. However I used a fitted PE, and not the actual PE. If for instance the insurance business went through some structural improvements over the last 2-3 years, I may underestimate the EPS which would feed into an overestimation of the PE. Regardless, it seems safe to say that it is currently expensive if you look at it from an historic perspective. It is not necessarily crazy expensive if you assume an underlying growth rate of the operational business of 7% and average capital allocation decisions. In addition they have so much cash at hand that you could expect Berkshire to start buying back shares if there would be a substantial price decrease. Overall I see limited upside, but also not extreme downside at the current levels. A possible play could be to short options on Berkshire and create a short volatility position. This could possibly hedge with long options in the portfolio of stocks Berkshire owns.
 
 ```{r}
 #| echo: false
@@ -207,10 +194,8 @@ ann_coord <- data.frame(x = as.Date(min(data_graph$date)
                         + (max(data_graph$date)-min(data_graph$date))*0.2), 
                         y = (max(data_graph$ins_ebit_per_shr , na.rm = TRUE)) * 0.8)
 ```
-Cash is at an all time high in absolute and relative terms.
-Insurance premiums net of underwriting expenses shows a nice steady growth.
-Insurance EBIT shows consistent strong growth.
-Underwriting expense ratio is gradually decreasing over time.
+
+Cash is at an all time high in absolute and relative terms. Insurance premiums net of underwriting expenses shows a nice steady growth. Insurance EBIT shows consistent strong growth. Underwriting expense ratio is gradually decreasing over time.
 
 ```{r}
 #| echo: false
@@ -263,8 +248,8 @@ ins_ebit_graph |> dplyr::filter(date > as.Date("2023-01-01")) |>
 
 
 ```
-Since 2023, the quarterly EPS of the insurance businesses is $`r round(avg_error_2023,2)` higher than expected per quarter. Annualized this increases the EPS by $`r round(avg_error_2023*4,2)`. 
 
+Since 2023, the quarterly EPS of the insurance businesses is \$`r round(avg_error_2023,2)` higher than expected per quarter. Annualized this increases the EPS by \$`r round(avg_error_2023*4,2)`.
 
 ```{r gross_profit_per_share}
 #| echo: false
@@ -352,7 +337,7 @@ data_graph |> ggplot(aes(
   theme_minimal() 
 ```
 
-If run with quarterly data, the latest fitted earnings per share annualized is $ `r round(ols_opp_pnl_per_shr$fitted.values |> last() * 4 * (1-0.21),2)`. If the current outperformance if the insurance business is permanent though, we can expect this to be $`r round(avg_error_2023*4, 2)` higher.
+If run with quarterly data, the latest fitted earnings per share annualized is \$ `r round(ols_opp_pnl_per_shr$fitted.values |> last() * 4 * (1-0.21),2)`. If the current outperformance if the insurance business is permanent though, we can expect this to be \$`r round(avg_error_2023*4, 2)` higher.
 
 ```{r PE}
 #| echo: false
@@ -387,8 +372,8 @@ pe_opp_bus_graph |> ggplot(aes(x = date, y = PE)) +
    theme_minimal() 
 
 ```
-As of `r last(pe_opp_bus_graph$date)`, Berkshire stockprice was $`r last(pe_opp_bus_graph$share_price)`, which implies a PE for the operational business of `r round(last(pe_opp_bus_graph$PE),1)`. If we adjust he EPS with the more recent higher insurance results, the latest EPS would be `r round( last(pe_opp_bus_graph$per_share) / ((last(pe_opp_bus_graph$eps_other) + avg_error_2023)*4) , 1)`
 
+As of `r last(pe_opp_bus_graph$date)`, Berkshire stockprice was $`r last(pe_opp_bus_graph$share_price)`, which implies a PE for the operational business of`r round(last(pe_opp_bus_graph$PE),1)`. If we adjust he EPS with the more recent higher insurance results, the latest EPS would be `r round( last(pe_opp_bus_graph$per_share) / ((last(pe_opp_bus_graph\$eps_other) + avg_error_2023)\*4) , 1)\`
 
 ```{r tax_rate}
 #| echo: false
@@ -408,10 +393,9 @@ As of `r last(pe_opp_bus_graph$date)`, Berkshire stockprice was $`r last(pe_opp_
        main.timespan = FALSE)
 
 ```
-The Trump tax cut had a huge effect on the profitability of Berkshire. Previously, the tax rate was about 40%, now it hovers slightly above 20%.
-Realized investment gains from Berkshire are taxed as regular income. For unrealized gains, it makes a reservation for future capital gain taxes by increasing the deferred tax liability.
-In principle you are better off holding Berkshire stock holdings directly to avoid a double taxation. In a sum of the parts analysis, the stock holdings should be netted with the deferred tax liability.
-  
+
+The Trump tax cut had a huge effect on the profitability of Berkshire. Previously, the tax rate was about 40%, now it hovers slightly above 20%. Realized investment gains from Berkshire are taxed as regular income. For unrealized gains, it makes a reservation for future capital gain taxes by increasing the deferred tax liability. In principle you are better off holding Berkshire stock holdings directly to avoid a double taxation. In a sum of the parts analysis, the stock holdings should be netted with the deferred tax liability.
+
 ```{r}
 #| echo: false
 #| warning: false
@@ -456,6 +440,7 @@ In principle you are better off holding Berkshire stock holdings directly to avo
       main = "Defered tax liability as % of equity investments",
       main.timespan = FALSE)
 ```
+
 The deferred tax liability is in excess of 20%. So when taking this liability in account we do not need to make an additional adjustment to the equities portfolio. You can also see the impact of the reduction of the corporate tax rate in 2018. These had a big impact on lowering the deferred tax liability.
 
 ```{r}
