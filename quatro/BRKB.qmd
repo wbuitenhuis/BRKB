@@ -8,33 +8,42 @@ editor: visual
 ## Intro
 
 Key questions I want to address:
+-   Is Berkshire a good capital allocator?
+-   Is Berkshire a good operator?
+-   Is Berkshire a buy, a sell, or a hold?
 
--   How is the insurance business doing:
+To determine if it is a good operator we need to look at the individual business units:
 
+Insurance:
     -   How does the profit margin evolve?
     -   What is the (long term) growth rate of profits?
     -   How do underwriting expenses evolve?
     -   What has been driving changes in profits? Changes in underwriting expenses, premium rates, or more business?
 
 -   How is the railway business doing:
-
     -   How does the profit margin evolve?
     -   What is the long term growth rate of profits?
     -   What drive changes in profits? Is it driven by profit margin, or overall growth of the business?
 
 -   How is the energy business doing?
-
     -   How does the profit margin evolve?
     -   What is the long term growth rate of profits?
     -   What drive changes in profits? Is it driven by profit margin, or overall growth of the business?
 
--   Does the amount of buybacks of Berkshire be a predictor of future profitability or share price?
+For the insurance business, we see that it is doing great and grows on average by 9% a year, which possibly has increased over the last two years. Earnings volatility has gone up quite a bit since 2018 or so. Overall a great business. Premiums grow by 7%. Underwriting expenses are trending down over time.
 
--   Does amount of cash relative to total investments predict stock market?
+For the other business I currently do not have enough data to make conclusions on long term trends. I suspect the railway business is somewhat under performing. Data for the railway business can be downloaded from the SEC website, I haven't gotten to it yet. It maybe that the SEC website has also more data on the energy business, but I have not really looked for it. However we do know that BNSF (the railroad subsidiary) saw their coal transport business decline due to the closure of coal plants. This was a significant part of their business. We also know that they are less efficient in their operations than competitors. They have a efficiency ratio of more than 70%, while competitors are around 65%. This however is likely caused by an increase in efficiency by competitors that is not matched by BNSF. BNSF has a potential upside by improving their efficency to match that of competitors.
 
 -   What is the expected profit growth rate for all operational business going forward?
+The long term growth rate is 7%. This the number I would work with today, but can be refined with further analysis.
+
+-   Is Berkshire a good capital allocator?
+I have not done this analysis yet. Before 2018, a large chunk of the investment results showed only up in comprehensive income. I need to incorporate this in the results. It does seem that share buy backs happen more frequently when the valuation is low. There is certain evidence that Berkshire tries to time the market. Currently they have cash holdings close to the all time high, although it has been this high before.
 
 -   If you back out the public investments is Berkshire priced attractive?
+Currently the implied PE of the operational business is 22.3. This is the all time high. However I used a fitted PE, and not the actual PE. If for instance the insurance business went through some structural improvements over the last 2-3 years, I may underestimate the EPS which would feed into an overestimation of the PE.
+Regardless, it seems safe to say that it is currently expensive if you look at it from an historic perspective. It is not necessarily crazy expensive if you assume an underlying growth rate of the operational business of 7% and average capital allocation decisions. In addition they have so much cash at hand that you could expect Berkshire to start buying back shares if there would be a substantial price decrease. Overall I see limited upside, but also not extreme downside at the current levels. 
+A possible play could be to short options on Berkshire and create a short volatility position. This could possibly hedge with long options in the portfolio of stocks Berkshire owns.
 
 ```{r}
 #| echo: false
@@ -48,19 +57,99 @@ data$avg_a_equiv_shrs[is.na(data$avg_a_equiv_shrs)] <- data$a_equiv_shrs[is.na(d
 data$a_equiv_shrs[is.na(data$a_equiv_shrs)] <- data$avg_a_equiv_shrs[is.na(data$a_equiv_shrs)]
 data_graph <- data.frame(date = index(data), data)
 data_graph$t <- round((as.numeric(index(data) - last(index(data)))) / 365.25, digits = 2)
+data_graph <- data_graph |> dplyr::mutate(ins_pnl = InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability - PolicyHolderBenefits)
+data_graph <- data_graph |> dplyr::mutate(service_pnl = ServiceRevenue - CostOfServices)
+data_graph <- data_graph |> dplyr::mutate(lease_pnl = LeaseIncome - CostOfLeasing)
+data_graph <- data_graph |> dplyr::mutate(energy_pnl = EnergyRevenue - EnergyCosts)
+data_graph <- data_graph |> dplyr::mutate(freight_pnl = FreightRevenue - FreightCosts)
+data_graph <- data_graph |> dplyr::mutate(tax_rate = (date <= as.Date("2017-12-31")) * 0.35 +
+                                            (date > as.Date("2017-12-31")) * 0.21)
+pnl_graph <- data_graph |> dplyr::select(date, t, ins_pnl, service_pnl, lease_pnl, 
+                                         energy_pnl, freight_pnl)
+pnl_graph <- pnl_graph |> tidyr::pivot_longer(names_to = "business_unit", values_to = "profit", 
+                                              cols = tidyr::ends_with("_pnl"), 
+                                              values_drop_na = TRUE)
+pnl_graph$business_unit <- as.factor(pnl_graph$business_unit)
+levels(pnl_graph$business_unit) <- c("Energy", "Freight", "Inurance", "Leasing", "Services")
+pnl_graph$profit <- pnl_graph$profit / 10^9
+
+bookv_p_shr_graph <- data_graph |> dplyr::select(date, t, cash_equiv, m2m_equities, share_price, a_equiv_shrs, brka_IncomeTaxesPrincipallyDeferred, equities_at_cost)
+portfolio <- data.frame(date = index(portfolio), coredata(portfolio))
+names(portfolio)[3] <- "share_price"
+bookv_p_shr_graph <- merge(bookv_p_shr_graph, portfolio, all = TRUE)
+bookv_p_shr_graph <- bookv_p_shr_graph |> 
+  dplyr::mutate(value_chg = ifelse(is.na(value_chg), 0, value_chg))
+last_obs <- last(index(data3M))
+bookv_p_shr_graph <- bookv_p_shr_graph |> dplyr::mutate(equities = (m2m_equities + equities_at_cost -  brka_IncomeTaxesPrincipallyDeferred))
+
+
+bookv_p_shr_graph <- bookv_p_shr_graph |>
+  # dplyr::group_by(date) |>
+  dplyr::mutate(
+    equities = dplyr::if_else(date > last_obs, equities[date == last_obs], equities),
+    cash_equiv = dplyr::if_else(date > last_obs, cash_equiv[date == last_obs], cash_equiv),
+    a_equiv_shrs = dplyr::if_else(date > last_obs,  a_equiv_shrs[date == last_obs], a_equiv_shrs)
+  ) #|>
+  # dplyr::ungroup()
+
+bookv_p_shr_graph <- bookv_p_shr_graph |> dplyr::mutate(equities = (equities + value_chg)/ (1500 * a_equiv_shrs))
+bookv_p_shr_graph <- bookv_p_shr_graph |> dplyr::mutate(cash_equiv = cash_equiv / (a_equiv_shrs *1500))
+bookv_p_shr_graph <- bookv_p_shr_graph |> dplyr::mutate(other = share_price - equities - cash_equiv)
+bookv_p_shr_graph <- bookv_p_shr_graph |> dplyr::select(c(-a_equiv_shrs, -m2m_equities, - brka_IncomeTaxesPrincipallyDeferred, -equities_at_cost))
+bookv_p_shr_graph <- bookv_p_shr_graph|> tidyr::pivot_longer(names_to = "asset", values_to = "per_share", 
+                                              cols = c(cash_equiv, equities, other), 
+                                              values_drop_na = TRUE)
+bookv_p_shr_graph$asset <- as.factor(bookv_p_shr_graph$asset)
+levels(bookv_p_shr_graph$asset) <- c("Cash", "Equities", "Other")
+bookv_p_shr_graph$asset <- factor(bookv_p_shr_graph$asset, levels = c("Other", "Equities", "Cash"))
+# calculate CAGR based on best fit model
+cagr <- function(ols_obj){
+  (last(ols_obj$fitted.values) / 
+            first(ols_obj$fitted.values))^
+   (1 / (last(ols_obj$model$t) - first(ols_obj$model$t))) - 1
+}
 
 ```
 
-## Graphs
+## Analysis
 
 ```{r}
 #| echo: false
 #| warning: false
 #| message: false
- # plot((data$InsPremiumsEarned - data$InsUnderwritingExpenses),
- #      yaxis.right = FALSE,
- #      main = "Premiums - underwriting expenses",
- #      main.timespan = FALSE)
+startDt <- as.Date("2021-01-01")
+pnl_graph |> dplyr::filter(date > startDt) |> ggplot(aes(x=date, y=profit, fill=business_unit)) + 
+    geom_area() +  
+  scale_x_date(
+    breaks = seq(startDt, max(pnl_graph$date), by = "5 year"),
+    minor_breaks = seq(min(pnl_graph$date), max(pnl_graph$date), by = "year"),
+    date_labels = "%Y") +
+  labs(title = "Profits of busines units", x = "",
+    y = "billion $") +
+   theme_minimal() 
+
+bookv_p_shr_graph |> ggplot(aes(x=date, y=per_share, fill=asset)) + 
+    geom_area() +  
+  scale_x_date(
+    breaks = seq(min(bookv_p_shr_graph$date), max(bookv_p_shr_graph$date), by = "5 year"),
+    minor_breaks = seq(min(bookv_p_shr_graph$date), max(bookv_p_shr_graph$date), by = "year"),
+    date_labels = "%Y") +
+  labs(title = "Composition of share price", x = "",
+    y = "$") +
+   theme_minimal() 
+
+bookv_div_graph <- bookv_p_shr_graph |> dplyr::mutate(per_share = per_share / share_price * 100)
+bookv_div_graph |> ggplot(aes(x=date, y=per_share, fill=asset)) + 
+    geom_area() +  
+  scale_x_date(
+    breaks = seq(min(bookv_div_graph$date), max(bookv_div_graph$date), by = "5 year"),
+    minor_breaks = seq(min(bookv_div_graph$date), max(bookv_div_graph$date), by = "year"),
+    date_labels = "%Y") +
+  labs(title = "share of assets", x = "",
+    y = "%") +
+   theme_minimal() 
+
+
 ols_premiums <- lm(log(InsPremiumsEarned - InsUnderwritingExpenses) ~ t, data = data_graph)
 caption <- paste("ln[premiums - underwriting expenses] =", 
                  round(coef(ols_premiums)[1],1), "+", round(coef(ols_premiums)[2],3), "t")
@@ -107,9 +196,27 @@ caption <- paste("ln[premiums - underwriting expenses] =",
   theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
    theme_minimal() 
 
-ols_ins_profit <- lm((InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability- PolicyHolderBenefits)/ 10^9 ~ t, data = data_graph)
+data_graph <- data_graph |> dplyr::mutate(ins_ebit_per_shr = (InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability- PolicyHolderBenefits)/ 10^9 )
+
+ols_ins_ebit_shr <- lm(ins_ebit_per_shr ~ t, data = data_graph)
 caption <- paste("profits =", 
-                 round(coef(ols_ins_profit)[1],4), "+", round(coef(ols_ins_profit)[2],4), "t")
+                 round(coef(ols_ins_ebit_shr)[1],4), "+", round(coef(ols_ins_ebit_shr)[2],4), "t")
+growth_rate <- cagr(ols_ins_ebit_shr) 
+annotation <- paste("CAGR =", round(growth_rate * 100, 1), "%")
+ann_coord <- data.frame(x = as.Date(min(data_graph$date) 
+                        + (max(data_graph$date)-min(data_graph$date))*0.2), 
+                        y = (max(data_graph$ins_ebit_per_shr , na.rm = TRUE)) * 0.8)
+```
+Cash is at an all time high in absolute and relative terms.
+Insurance premiums net of underwriting expenses shows a nice steady growth.
+Insurance EBIT shows consistent strong growth.
+Underwriting expense ratio is gradually decreasing over time.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
  data_graph |> ggplot(aes(x = date, 
                           y = (InsPremiumsEarned - InsUnderwritingExpenses - ClaimsPropertyLiability - PolicyHolderBenefits)/ 10^9)) +
    geom_point() + 
@@ -118,99 +225,216 @@ caption <- paste("profits =",
     breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
     minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
     date_labels = "%Y") + 
-#   scale_y_continuous(
-#    name = "$",                      # Primary y-axis label
-#    sec.axis = sec_axis(~ 10log(.),             # Transformation for the secondary y-axis
-#                        name = "10 log") ) +  # Secondary y-axis label
-     labs(title = "Insurance gross profits", x = "",
+     labs(title = "Insurance EBIT", x = "",
     y = "billion $",
     caption = caption) +
    geom_smooth(method = "lm",           # Add OLS fit
               se = TRUE,               # Display confidence interval (optional)
               color = "darkred") +  
+       annotate("text",
+              x = ann_coord$x[1],
+              y = ann_coord$y[1],
+             label = annotation) +
   theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
    theme_minimal() 
-    
-    
-  plot(data$LeaseIncome - data$CostOfLeasing,
-            yaxis.right = FALSE,
-      main = "Leasing Gross Profits",
-      main.timespan = FALSE)
-  
-  plot(data$LeaseIncome/data$CostOfLeasing - 1,
-            yaxis.right = FALSE,
-      main = "Leasing Profit Margin",
-      main.timespan = FALSE)
-  
-  plot(data$ServiceRevenue - data$CostOfServices,
-            yaxis.right = FALSE,
-      main = "Service Gross Profits",
-      main.timespan = FALSE)
-  plot(data$ServiceRevenue / data$CostOfServices - 1,
-       yaxis.right = FALSE,
-      main = "Service Profit Margin",
-      main.timespan = FALSE)
-  
-  plot(data$FreightRevenue - data$FreightCosts,
-            yaxis.right = FALSE,
-      main = "Freight Gross Profits",
-      main.timespan = FALSE)
 
-  plot(data$FreightRevenue / data$FreightCosts -1,
-            yaxis.right = FALSE,
-      main = "Freight Profit Margin",
-      main.timespan = FALSE)
-  plot(data$EnergyRevenue - data$EnergyCosts,
-            yaxis.right = FALSE,
-      main = "Energy Gross Profits",
-      main.timespan = FALSE)
-  plot(data$EnergyRevenue / data$EnergyCosts - 1,
-            yaxis.right = FALSE,
-      main = "Energy Profit Margin",
-      main.timespan = FALSE)
+ins_ebit_graph <- data.frame(date = as.Date(names(ols_ins_ebit_shr$residuals)), 
+                             residuals = ols_ins_ebit_shr$residuals)
+avg_error_2023 <- ins_ebit_graph  |> 
+  dplyr::filter(date > as.Date("2023-01-01")) |> 
+  dplyr::summarise(avg_error = mean(residuals))
+
+ins_ebit_graph |> dplyr::filter(date > as.Date("2023-01-01")) |>
+  ggplot(aes(x = date, y = residuals)) +
+  geom_point() + 
+  geom_line() +
+  scale_x_date(
+    breaks = seq(as.Date("2023-01-01"), max(ins_ebit_graph$date), by = "1 year"),
+    minor_breaks = seq(as.Date("2023-01-01"), max(ins_ebit_graph$date), by = "quarter"),
+    date_labels = "%Y") + 
+     labs(title = "Insurance EBIT per share error estimates", x = "",
+    y = "$ per share per quarter") +
+   geom_smooth(method = "lm",           # Add OLS fit
+              se = TRUE,               # Display confidence interval (optional)
+              color = "darkred") +  
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
+   theme_minimal() 
+
+
+
 ```
+Since 2023, the quarterly EPS of the insurance businesses is $`r round(avg_error_2023,2)` higher than expected per quarter. Annualized this increases the EPS by $`r round(avg_error_2023*4,2)`. 
 
-Balance sheet and cashflow statement gices the folowing graphs:
-```{r}
+
+```{r gross_profit_per_share}
 #| echo: false
 #| warning: false
 #| message: false
 library(xts)
 library(ggplot2)
 
-  plot((data$PnL + data$depreciation - data$plant_and_equipment)/ (1500* data$avg_a_equiv_shrs),
-            yaxis.right = FALSE,
-      main = "Free cashflow per share",
-      main.timespan = FALSE)
-  
-  plot((data$PnL - data$investment_gains)/ (1500* data$avg_a_equiv_shrs),
-            yaxis.right = FALSE,
-      main = "Opperating profit per share",
-      main.timespan = FALSE)
+ 
+ols_opp_pnl <- lm((PnL - investment_gains) / 10 ^ 9  ~ t, data = data_graph)
+caption <- paste("profits =", round(coef(ols_opp_pnl)[1], 2), "+", round(coef(ols_opp_pnl)[2], 2), "t")
+growth_rate <- cagr(ols_opp_pnl)
+annotation <- paste("CAGR =", round(growth_rate * 100, 1), "%")
+ann_coord <- data.frame(x = as.Date(min(data_graph$date)
+                                    + (
+                                      max(data_graph$date) - min(data_graph$date)
+                                    ) * 0.2), y = (max((data_graph$PnL - data_graph$investment_gains) / 10 ^9, na.rm = TRUE )) * 0.8)
+data_graph |> ggplot(aes(
+  x = date,
+  y = (PnL - investment_gains) / 10 ^
+    9
+)) +
+  geom_point() +
+  geom_line() +
+  scale_x_date(
+    breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
+    minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
+    date_labels = "%Y"
+  ) +
+  labs(
+    title = "Opperating EBIT",
+    x = "",
+    y = "billion USD",
+    caption = caption
+  ) +
+  geom_smooth(method = "lm",
+              # Add OLS fit
+              se = TRUE,
+              # Display confidence interval (optional)
+              color = "darkred") +
+  annotate("text",
+           x = ann_coord$x[1],
+           y = ann_coord$y[1],
+           label = annotation) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  theme_minimal()
+ols_opp_pnl_per_shr <- lm((PnL - investment_gains) / (1500 * avg_a_equiv_shrs) ~ t, data = data_graph)
+caption <- paste("profits =", round(coef(ols_opp_pnl_per_shr)[1], 2), "+", round(coef(ols_opp_pnl_per_shr)[2], 2), "t")
+growth_rate <- cagr(ols_opp_pnl_per_shr)
+annotation <- paste("CAGR =", round(growth_rate * 100, 1), "%")
+ann_coord <- data.frame(x = as.Date(min(data_graph$date)
+                                    + (
+                                      max(data_graph$date) - min(data_graph$date)
+                                    ) * 0.2), y = (max((data_graph$PnL - data_graph$investment_gains) / (1500 * data_graph$avg_a_equiv_shrs),
+                                                       na.rm = TRUE
+                                    )) * 0.8)
+# ann_coord <- data.frame(x = as.Date("2012-01-01"), y = 10)
+data_graph |> ggplot(aes(
+  x = date,
+  y = (PnL - investment_gains) / (1500 * avg_a_equiv_shrs)
+)) +
+  geom_point() +
+  geom_line() +
+  scale_x_date(
+    breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
+    minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
+    date_labels = "%Y"
+  ) +
+  labs(
+    title = "Opperating EBIT per share",
+    x = "",
+    y = "$ per share",
+    caption = caption
+  ) +
+  geom_smooth(method = "lm",
+              # Add OLS fit
+              se = TRUE,
+              # Display confidence interval (optional)
+              color = "darkred") +
+  annotate("text",
+           x = ann_coord$x[1],
+           y = ann_coord$y[1],
+           label = annotation) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  theme_minimal() 
+```
 
-    plot((data$PnL - data$InvestmentGains - data$EquityMethodIncome - data$InterestDividendIncome + data$InterestExpense)/ (1500* data$avg_a_equiv_shrs),
+If run with quarterly data, the latest fitted earnings per share annualized is $ `r round(ols_opp_pnl_per_shr$fitted.values |> last() * 4 * (1-0.21),2)`. If the current outperformance if the insurance business is permanent though, we can expect this to be $`r round(avg_error_2023*4, 2)` higher.
+
+```{r PE}
+#| echo: false
+#| warning: false
+#| message: false
+
+fitted_eps_other <- data.frame(date = as.Date(names(ols_opp_pnl_per_shr$fitted.values)),
+                               eps_other = ols_opp_pnl_per_shr$fitted.values)
+fitted_eps_other <- data_graph |> dplyr::select(c(date, tax_rate)) |> 
+dplyr::left_join(fitted_eps_other)
+fitted_eps_other <- fitted_eps_other  |> dplyr::mutate(eps_other = eps_other * (1 - tax_rate))
+
+pe_opp_bus_graph <- bookv_p_shr_graph |> dplyr::filter(asset == "Other") |> 
+  dplyr::left_join(fitted_eps_other) 
+pe_opp_bus_graph <- pe_opp_bus_graph |>
+  # dplyr::group_by(date) |>
+  dplyr::mutate(
+    tax_rate = dplyr::if_else(date > last_obs, tax_rate[date == last_obs], tax_rate),
+    eps_other = dplyr::if_else(date > last_obs, eps_other[date == last_obs], eps_other)
+  ) |>
+  dplyr::mutate(PE = 0.25 * per_share / eps_other)
+
+pe_opp_bus_graph |> ggplot(aes(x = date, y = PE)) +
+  geom_line() +
+   scale_x_date(
+    breaks = seq(min(data_graph$date), max(data_graph$date), by = "5 year"),
+    minor_breaks = seq(min(data_graph$date), max(data_graph$date), by = "year"),
+    date_labels = "%Y") + 
+    labs(title = "Implied PE operating business", x = "",
+    y = "multiple") +
+    theme(axis.text.x = element_text(angle = 70, hjust = 1)) + 
+   theme_minimal() 
+
+```
+As of `r last(pe_opp_bus_graph$date)`, Berkshire stockprice was $`r last(pe_opp_bus_graph$share_price)`, which implies a PE for the operational business of `r round(last(pe_opp_bus_graph$PE),1)`. If we adjust he EPS with the more recent higher insurance results, the latest EPS would be `r round( last(pe_opp_bus_graph$per_share) / ((last(pe_opp_bus_graph$eps_other) + avg_error_2023)*4) , 1)`
+
+
+```{r tax_rate}
+#| echo: false
+#| warning: false
+#| message: false
+  # plot((data$PnL - data$InvestmentGains - data$EquityMethodIncome - data$InterestDividendIncome + data$InterestExpense)/ (1500* data$avg_a_equiv_shrs),
+  #           yaxis.right = FALSE,
+  #     main = "Opperating profit per share",
+  #     main.timespan = FALSE)
+  # plot((data$cash_equiv)/ (1500* data$avg_a_equiv_shrs),
+  #           yaxis.right = FALSE,
+  #     main = "Cash equivalence per share",
+  #     main.timespan = FALSE)
+  plot(data$IncomeTaxExpenseBenefit / (data$PnL),
+       yaxis.right = FALSE,
+       main = "Avg Tax Rate over all income",
+       main.timespan = FALSE)
+
+```
+The Trump tax cut had a huge effect on the profitability of Berkshire. Previously, the tax rate was about 40%, now it hovers slightly above 20%.
+Realized investment gains from Berkshire are taxed as regular income. For unrealized gains, it makes a reservation for future capital gain taxes by increasing the deferred tax liability.
+In principle you are better off holding Berkshire stock holdings directly to avoid a double taxation. In a sum of the parts analysis, the stock holdings should be netted with the deferred tax liability.
+  
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+  plot((data$StockholdersEquity) / (1500* data$avg_a_equiv_shrs),
             yaxis.right = FALSE,
-      main = "Opperating profit per share",
-      main.timespan = FALSE)
-  plot((data$cash_equiv)/ (1500* data$avg_a_equiv_shrs),
-            yaxis.right = FALSE,
-      main = "Cash equivalence per share",
+      main = "book value per share",
       main.timespan = FALSE)
   
-  plot((data$StockholdersEquity)/ (1500* data$avg_a_equiv_shrs),
+  plot((data$StockholdersEquity) / (1500* data$avg_a_equiv_shrs * data$share_price),
             yaxis.right = FALSE,
-      main = "equity per share",
+      main = "book value / share price",
       main.timespan = FALSE)
   
-  plot((data$m2m_equities)/ (1500* data$avg_a_equiv_shrs),
-            yaxis.right = FALSE,
-      main = "marketable securities per share",
-      main.timespan = FALSE)
-  
-  plot(data$equities_at_cost / (1500* data$avg_a_equiv_shrs),
-      yaxis.right = FALSE,
-      main = "securities at cost per share",
-      main.timespan = FALSE)
+  # plot((data$m2m_equities)/ (1500* data$avg_a_equiv_shrs),
+  #           yaxis.right = FALSE,
+  #     main = "marketable securities per share",
+  #     main.timespan = FALSE)
+  # 
+  # plot(data$equities_at_cost / (1500* data$avg_a_equiv_shrs),
+  #     yaxis.right = FALSE,
+  #     main = "securities at cost per share",
+  #     main.timespan = FALSE)
 
       plot((data$equity_purchases - data$equity_sales) / (1500* data$avg_a_equiv_shrs),
       yaxis.right = FALSE,
@@ -226,5 +450,50 @@ library(ggplot2)
       yaxis.right = FALSE,
       main = "%shares bought back",
       main.timespan = FALSE)
+      
+      plot((data$brka_IncomeTaxesPrincipallyDeferred / (data$m2m_equities + data$equities_at_cost)),
+      yaxis.right = FALSE,
+      main = "Defered tax liability as % of equity investments",
+      main.timespan = FALSE)
+```
+The deferred tax liability is in excess of 20%. So when taking this liability in account we do not need to make an additional adjustment to the equities portfolio. You can also see the impact of the reduction of the corporate tax rate in 2018. These had a big impact on lowering the deferred tax liability.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false    
+ 
+   # plot((data$PnL + data$depreciation - data$plant_and_equipment)/ (1500* data$avg_a_equiv_shrs),
+   #          yaxis.right = FALSE,
+   #    main = "Free cashflow per share",
+   #    main.timespan = FALSE)       
+  # plot(data$LeaseIncome - data$CostOfLeasing,
+  #           yaxis.right = FALSE,
+  #     main = "Leasing Gross Profits",
+  #     main.timespan = FALSE)
+  # 
+  # plot(data$LeaseIncome/data$CostOfLeasing - 1,
+  #           yaxis.right = FALSE,
+  #     main = "Leasing Profit Margin",
+  #     main.timespan = FALSE)
+  # 
+  # plot(data$ServiceRevenue - data$CostOfServices,
+  #           yaxis.right = FALSE,
+  #     main = "Service Gross Profits",
+  #     main.timespan = FALSE)
+  # plot(data$ServiceRevenue / data$CostOfServices - 1,
+  #      yaxis.right = FALSE,
+  #     main = "Service Profit Margin",
+  #     main.timespan = FALSE)
+  # 
+  # plot(data$FreightRevenue - data$FreightCosts,
+  #           yaxis.right = FALSE,
+  #     main = "Freight Gross Profits",
+  #     main.timespan = FALSE)
+  # 
+  # plot(data$FreightRevenue / data$FreightCosts -1,
+  #           yaxis.right = FALSE,
+  #     main = "Freight Profit Margin",
+  #     main.timespan = FALSE)
       
 ```

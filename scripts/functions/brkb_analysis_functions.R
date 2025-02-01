@@ -211,7 +211,7 @@ clean_BRKB_statement <- function(st, parent_only = FALSE, filter = FALSE){
 # energy
 # rail roads
 # investment gains
-run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
+run_brkb_analysis <- function(st10Q, st10K, shares_outstanding, portfolio = NULL){
   library(dplyr)
   library(xts)
   
@@ -338,13 +338,16 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
                       "RevenueFromContractWithCustomerIncludingAssessedTax", 
                       "RevenueFromContractWithCustomerExcludingAssessedTax", 
                       "SalesRevenueNet",
-                      "CostOfGoodsAndServicesSold")]
+                      "CostOfGoodsAndServicesSold", 
+                      "SellingGeneralAndAdministrativeExpense")]
     service <- service |> filter(value1 == "brka:InsuranceAndOtherMember")
     service$Revenue <- apply(service[, c("brka_SalesAndServiceRevenue",
                                          "RevenueFromContractWithCustomerIncludingAssessedTax",
                                          "RevenueFromContractWithCustomerExcludingAssessedTax",
                                          "SalesRevenueNet")], 1, sum, na.rm = TRUE)
-    service <- service[, c("endDate", "Revenue", "CostOfGoodsAndServicesSold")]
+    service$service_cost <- apply(service[,c("CostOfGoodsAndServicesSold", "SellingGeneralAndAdministrativeExpense")], 1, sum, na.rm = FALSE) 
+    # "SellingGeneralAndAdministrativeExpense" probably should apply to multiple revenue streams
+    service <- service[, c("endDate", "Revenue", "service_cost")]
     names(service) <- c("endDate", "ServiceRevenue", "CostOfServices")
     service <- service |> 
       dplyr::filter(dplyr::if_any(c(ServiceRevenue, CostOfServices),
@@ -381,16 +384,20 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
     names(investment) <- c("endDate", "InvestmentGains", "EquityMethodIncome", 
                            "InterestDividendIncome", "InterestExpense")
     
-    other_costs_ins <- ins["SellingGeneralAndAdministrativeExpense"]
+    # other_costs_ins <- ins["SellingGeneralAndAdministrativeExpense"]
     interest_exp_infra <- "InterestExpense"
-    
-    service_cost <- "OtherFinancialServicesCosts" # not part of insurance and other group
 
+    is <-is |> select_if(~ any(!is.na(.)) & any(. != 0))
+    service_cost <- "OtherFinancialServicesCosts" # not part of insurance and other group
+    taxes <- is[, c("endDate", "value1", "IncomeTaxExpenseBenefit")] |> 
+      dplyr::filter(is.na(value1)) |> dplyr::filter(!is.na(IncomeTaxExpenseBenefit)) |>
+      dplyr::filter(IncomeTaxExpenseBenefit != 0) |> dplyr::select(-value1)
     ret <- merge(investment, insurance, all = TRUE)
     ret <- merge(ret, energy, all = TRUE)
     ret <- merge(ret, freight, all = TRUE)
     ret <- merge(ret, leasing, all = TRUE)
     ret <- merge(ret, service, all = TRUE)
+    ret <- merge(ret, taxes, all = TRUE)
     return(ret)
   }
   
@@ -455,7 +462,9 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
                  "AvailableForSaleSecuritiesEquitySecurities",
                  "EquitySecuritiesFvNi", "MarketableSecuritiesEquitySecurities",
                  "brka_EquityMethodInvestmentsInPreferredStockAndCommonStock",
-                 "EquityMethodInvestments", "AdditionalPaidInCapitalCommonStock",
+                 "EquityMethodInvestments", 
+                 "brka_IncomeTaxesPrincipallyDeferred",
+                 "AdditionalPaidInCapitalCommonStock",
                  "StockholdersEquity")]
     bs$cash_equiv <- apply(bs[, c("CashAndCashEquivalentsAtCarryingValue", 
                                   "brka_USTreasuryBills")], 1, sum, na.rm=TRUE)
@@ -463,10 +472,12 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
                                    "EquitySecuritiesFvNi", 
                                    "MarketableSecuritiesEquitySecurities")], 
                             1, sum, na.rm=TRUE)
+    bs$m2m_equities[bs$m2m_equities == 0] <- NA
     bs$equities_at_cost <-apply(bs[, c("brka_EquityMethodInvestmentsInPreferredStockAndCommonStock",
                                        "EquityMethodInvestments")], 
                                 1, sum, na.rm=TRUE)
     bs <- bs[, c("endDate", "cash_equiv", "m2m_equities", "equities_at_cost",
+                 "brka_IncomeTaxesPrincipallyDeferred",
                  "AdditionalPaidInCapitalCommonStock",
                  "StockholdersEquity")]
     dupe1 <- duplicated(bs$endDate, fromLast = TRUE)
@@ -504,7 +515,6 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
     if (analysis == "IS"){
       data3M <- is_analysis(st3M)
       data9M <- is_analysis(st9M)
-      # browser()
       data12M <- is_analysis(st12M)
     } 
     if (analysis == "CF") {
@@ -600,8 +610,22 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding){
   data12M <- merge(is_figures[[2]], cf_figures[[2]])
   data12M <- merge(data12M, bs_figures[[2]])
   data12M <- merge(data12M, nr_shares[[2]])
+  stockprices <- readxl::read_xlsx("./rawdata/shareprice/BRK-B.xlsx")
+  stockprices$Date <- as.Date(stockprices$Date)
+  stockprices$Date <- stockprices$Date |> lubridate::ceiling_date("month") - lubridate::days(1)
+  stockprices <- stockprices[!duplicated(stockprices$Date), ]
+  stockprices <- xts(x = stockprices$Close, order.by = stockprices$Date)
+  names(stockprices) <- "share_price"
+  data3M <- merge(data3M, stockprices, all = FALSE)
+  data12M <- merge(data12M, stockprices, all = FALSE)
   
-  save(data3M, data12M, file = "./data/BRKB_income_bu.Rdata")
+  if (is.null(portfolio)){
+    portfolio <- add_portfolio_valuation(data3M)
+  } else if (last(index(portfolio)) < Sys.Date() - lubridate::days(1)){
+    portfolio <- add_portfolio_valuation(data3M)
+  }
+  browser()
+  save(data3M, data12M, portfolio, file = "./data/BRKB_income_bu.Rdata")
 }
 
 # find common shares outstanding
@@ -656,5 +680,194 @@ statements2excel <- function(st, file = "statements.xlsx"){
   options("openxlsx.numFmt" = NULL)  
 }
 
+# takes in quarterly data based on 10Q en 10K
+# add daily portfolio values for last 2 quarters
+# add daily stock price for last two quarters
+add_portfolio_valuation <- function(data3M){
+  # Scenario 1:
+  # Most recent 10Q report > 3 months ago, most recent 13F > 3 months ago
+  # Scenario 2: 
+  # Most recent 10Q > 3 months ago, most recent 13F < 3 months ago
+  # Scenario 3: 
+  # Most recent 10Q report < 3 months ago, most recent 13F > 3 months ago
+  # Scenario 4: 
+  # Most recent 10Q report < 3 months ago, most recent 13F < 3 months ago
+  # Additional variable:
+  # function was previously run, with same scenario and 
+  # 1.) does not need to be updated
+  # 2.) needs to be updates
+  # function was previously run, but either for different scenario or different time frame.
+  
+  # step 1:
+  # check data3M when was last updated. Does 3M data need to be updated?
+  # check if we are in scenario 1 or 2 vs 3 or 4.
+  library(xts)
+  library(NasdaqDataLink)
+  investor <- "BERKSHIRE HATHAWAY INC"
+  symbol = "BRK.B"
+  NasdaqDataLink.api_key("s8rJbJ-oz8hPyu6_PC7K")
+  income_taxrate <- 0.21
+  
+  two_quarters <- Sys.Date() - months(3) > last(index(data3M))
+  released13F <- TRUE
+  # dates_13F <- last(index(data3M), two_quarters + 1)
+  dates_13F <- last(index(data3M), 2)
+  end_dt <- Sys.Date() - lubridate::days(1)
+  end_dates <- c(dates_13F[-1], end_dt)
+  portfolio_value <- NULL
+  for (i in 1:length(dates_13F)){
+    # obtain investments of Berkshire (source 13F)
+    holdings <- NasdaqDataLink.datatable('SHARADAR/SF3', calendardate = dates_13F[i], 
+                                         investorname = investor, paginate = TRUE)
+    if (nrow(holdings) == 0){
+      # No data for 13F
+      released13F <- FALSE
+      next
+    }
+    prices <- NasdaqDataLink.datatable('SHARADAR/SEP', date.gte=as.Date(dates_13F[i] + 1), 
+                                       date.lte=end_dates[i], 
+                                       ticker=holdings$ticker, paginate = TRUE)
+    BRKB <- NasdaqDataLink.datatable('SHARADAR/SEP', date.gte=as.Date(dates_13F[i] + 1), 
+                                       date.lte=end_dates[i], 
+                                       ticker="BRK.B", paginate = TRUE)
+    ind <- match(prices$ticker, holdings$ticker)
+    prices$units <- holdings$units[ind]
+    prices <- prices |> dplyr::mutate(value = closeunadj * units) |>
+      dplyr::select(c("date", "ticker", "value"))
+    portfolio_value_i <- prices |> dplyr::group_by(date) |> dplyr::summarise(investments = sum(value))
+    # browser()
+    BRKB <- BRKB |> dplyr::select(c("date", "closeunadj")) |>
+      dplyr::arrange(date)
+    portfolio_value_i <- merge(portfolio_value_i, BRKB)
+    colnames(portfolio_value_i) <- c("date", "investments", "shr_p")
+    portfolio_value <- rbind(portfolio_value, portfolio_value_i)
 
 
+  }
+
+  if (released13F) {
+    portfolio_value <- portfolio_value |> dplyr::filter(date > last(dates_13F))
+  }
+  portfolio_value <- portfolio_value |> 
+     dplyr::mutate(value_chg = (investments - dplyr::first(investments))*(1-income_taxrate)) |>
+     dplyr::select(c("date", "value_chg", "shr_p"))
+  portfolio_value <- xts(x = coredata(portfolio_value[,-1]), order.by = portfolio_value$date)
+  # browser()
+  names(portfolio_value) <- c("value_chg", "shr_p")
+  return(portfolio_value)
+}
+
+push_latest_portfolio_to_googlesheets <- function(){
+  library(googlesheets4)
+  sheetID <- "1wxdMwmK0nNiYSug1hhfFEniYLkovR1vDoyRim0nXtBU"
+  sheetURL <- paste0("https://docs.google.com/spreadsheets/d/",sheetID)
+  test <-data.frame(holdings = c("AMEX","CHEVRON","AAPL"), quantity = c("a","B","C"), price = rep(NA, 3))
+  gs4_deauth()
+  gs4_auth()
+  # sheet_write(test, ss = paste0("https://docs.google.com/spreadsheets/d/",sheetID), sheet = "Sheet3")
+  googlesheets4::range_clear(ss = sheetURL, range = "A1:C10")
+  googlesheets4::range_write(ss = sheetURL, 
+                             data = test, 
+                             range = "A1", 
+                             col_names = TRUE,
+                             sheet = "Sheet3")
+
+  
+}
+  
+# Old function to value Berkshire
+# Fully relies on Quandle data
+# does not take into account income taxes, or defered tax liabilities
+value_BRK_investments <-function(start_dt, end_dt){
+  # improvements: do not make share count jump by quarter, but estimate share count by day
+  
+  library(xts)
+  library(NasdaqDataLink)
+  
+  investor <- "BERKSHIRE HATHAWAY INC"
+  symbol = "BRK.B"
+  NasdaqDataLink.api_key("s8rJbJ-oz8hPyu6_PC7K")
+  
+  dates_13F <- seq(as.yearqtr(start_dt), as.yearqtr(end_dt), by = 1/4) |> as.Date(frac = 1)
+  dates_13F <- dates_13F[dates_13F < as.Date(Sys.Date() - 7 * 5)]
+  end_dates <- c(dates_13F[-1], end_dt)
+  
+  investments <- NULL# 
+  investment_per_share <- NULL
+  b_shares_equiv <- NULL
+  q_dates <- NULL
+  bs_items <- bs_per_shr <- NULL
+  prev_per_inv <- NULL
+  for (i in 1:length(dates_13F)){
+    # obtain investments of Berkshire (source 13F)
+    holdings <- NasdaqDataLink.datatable('SHARADAR/SF3', calendardate = dates_13F[i], 
+                                         investorname = investor, paginate = TRUE)
+    if (nrow(holdings) == 0){
+      # No data for 13F
+      next
+    }
+    # Obtain balance sheet items of Berkshire (source 10Q, 10K)
+    data <- NasdaqDataLink.datatable('SHARADAR/SF1', calendardate = dates_13F[i], 
+                                     ticker = symbol, paginate = TRUE)
+    row <- which(data$dimension == "MRQ") #most recent reported quarter
+    nr_b_shares <- data[row, "shareswa"]
+    latest_b_shares_equiv <- data[row, "shareswadil"]
+    i.bs_items <- data[row, c("cashnequsd", "investments")]
+    if (nrow(data) == 0){
+      # No data for 10Q / 10K
+      if (is.null(bs_items)){
+        next
+      } else {
+        latest_b_shares_equiv <- b_shares_equiv[i - 1]
+        i.bs_items <- bs_items[i - 1, ]  
+      }
+    }
+    b_shares_equiv <- rbind(b_shares_equiv, latest_b_shares_equiv)
+    bs_items <- rbind(bs_items, i.bs_items)
+    i.bs_per_shr <- i.bs_items / latest_b_shares_equiv
+    bs_per_shr <- rbind(bs_per_shr, i.bs_per_shr)
+    q_dates <- rbind(q_dates, dates_13F[i])
+    
+    # Obtain daily prices of investments of Berkshire
+    prices <- NasdaqDataLink.datatable('SHARADAR/SEP', date.gte=as.Date(dates_13F[i] + 1), 
+                                       date.lte=end_dates[i], 
+                                       ticker=holdings$ticker, paginate = TRUE)
+    ind <- match(prices$ticker, holdings$ticker)
+    prices$units <- holdings$units[ind]
+    prices$value <- prices$closeunadj * prices$units
+    i.investments <- tapply(prices$value, prices$date, sum)
+    i.investments <- xts(x = i.investments, order.by = as.Date(names(i.investments)))
+    i.investments <- i.investments - rep(i.investments[1,], length(i.investments)) + sum(i.bs_items)
+    investments <- rbind(i.investments, investments)
+    # if (!is.null(prev_per_inv)){
+    #   n <- nrow(prev_per_inv)
+    #   nr_shares <- seq(from = b_shares_equiv[i-1], to= b_shares_equiv[i], length.out = n)
+    #   i.investments_per_share <- prev_per_inv  / nr_shares
+    #   investment_per_share <- rbind(i.investments_per_share, investment_per_share)  
+    # }
+    i.investments_per_share <- i.investments  / b_shares_equiv[i]
+    investment_per_share <- rbind(i.investments_per_share, investment_per_share)
+    prev_per_inv <- i.investments
+  }
+  # n <- nrow(prev_per_inv)
+  # nr_shares <- seq(from = b_shares_equiv[i-1], to= b_shares_equiv[i], length.out = n)
+  # i.investments_per_share <- prev_per_inv  / nr_shares
+  # investment_per_share <- rbind(i.investments_per_share, investment_per_share)  
+  # 
+  investments <- investments / 10^6
+  q_data <- cbind(b_shares_equiv, bs_items / 10^6, bs_per_shr)
+  q_data <- xts(x=q_data, order.by = as.Date(q_dates))
+  colnames(q_data) <- c("shr_out", "cash", "investments", "cash_per_shr", "inv_per_shr")
+  data <- cbind(investments, investment_per_share)
+  prices <- NasdaqDataLink.datatable('SHARADAR/SEP', date.gte=min(index(data)), 
+                                     date.lte=max(index(data)), 
+                                     ticker=c("BRK.B", "BRK.A"), paginate = TRUE)
+  prices <- prices[, c("ticker", "date", "close")]
+  prices <- tidyr::pivot_wider(prices, names_from = "ticker", values_from = "close")
+  prices <- xts(prices[, -1], order.by = prices$date)
+  data <- merge.xts(data, prices, join = "inner")
+  premium <- (data$BRK.B - data$BRK.A / 1500) / data$BRK.B
+  colnames(premium) <- "premium"
+  d_data <- cbind(data, premium)
+  return(list(d_data, q_data))
+}
