@@ -373,7 +373,7 @@ pe_opp_bus_graph |> ggplot(aes(x = date, y = PE)) +
 
 ```
 
-As of `r last(pe_opp_bus_graph$date)`, Berkshire stockprice was $`r last(pe_opp_bus_graph$share_price)`, which implies a PE for the operational business of`r round(last(pe_opp_bus_graph$PE),1)`. If we adjust he EPS with the more recent higher insurance results, the latest EPS would be `r round( last(pe_opp_bus_graph$per_share) / ((last(pe_opp_bus_graph\$eps_other) + avg_error_2023)\*4) , 1)\`
+As of `r last(pe_opp_bus_graph$date)`, Berkshire stockprice was $`r last(pe_opp_bus_graph$share_price)`, which implies a PE for the operational business of`r round(last(pe_opp_bus_graph$PE),1)`. If we adjust he EPS with the more recent higher insurance results, the latest EPS would be `r round( last(pe_opp_bus_graph$per_share) / ((last(pe_opp_bus_graph$eps_other) + avg_error_2023) * 4) , 1)`
 
 ```{r tax_rate}
 #| echo: false
