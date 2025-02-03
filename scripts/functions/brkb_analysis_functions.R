@@ -631,18 +631,7 @@ run_brkb_analysis <- function(st10Q, st10K, shares_outstanding, portfolio = NULL
 # find common shares outstanding
 # find weighted number of shares outstanding
 outstanding_shares <- function(xbrl){
-  # browser()
-  # #matching_facts <- xbrl$fact |> dplyr::filter(unitId == "U_shares")
-  # matching_facts <- xbrl$fact
-  # matching_facts <- matching_facts |> dplyr::left_join(xbrl$context, by = dplyr::join_by(contextId))
-  # matching_facts <- matching_facts |> dplyr::left_join(xbrl$label, by = dplyr::join_by(elementId))
-  # ind <- stringr::str_detect(tolower(matching_facts$elementId), pattern = "outstanding") |
-  #   stringr::str_detect(tolower(matching_facts$labelString), pattern = "outstanding")
-  # matching_facts <- matching_facts[ind, ]
-  # matching_facts <- matching_facts[!duplicated(matching_facts$factId), ]
-  # matching_facts <- matching_facts |> dplyr::filter(unitId == "U_shares")
-  # 
-  
+ 
   ind_element <- stringr::str_detect(tolower(xbrl$fact$elementId), pattern = "outstanding")
   ind_element[is.na(ind_element)] <- FALSE
   matching_facts <- xbrl$fact[ind_element, ]
@@ -761,17 +750,61 @@ push_latest_portfolio_to_googlesheets <- function(){
   library(googlesheets4)
   sheetID <- "1wxdMwmK0nNiYSug1hhfFEniYLkovR1vDoyRim0nXtBU"
   sheetURL <- paste0("https://docs.google.com/spreadsheets/d/",sheetID)
-  test <-data.frame(holdings = c("AMEX","CHEVRON","AAPL"), quantity = c("a","B","C"), price = rep(NA, 3))
+  
+  library(xts)
+  library(NasdaqDataLink)
+  investor <- "BERKSHIRE HATHAWAY INC"
+  symbol = "BRK.B"
+  NasdaqDataLink.api_key("s8rJbJ-oz8hPyu6_PC7K")
+  EOquarters <- data.frame(date = c(as.Date("1900-01-01"),as.Date("1900-01-01")))
+  EOquarters$date[1] <- lubridate::floor_date(Sys.Date(), "quarter") - lubridate::days(1)
+  EOquarters$date[2] <- lubridate::floor_date(EOquarters[1,1], "quarter") - lubridate::days(1)
+  
+  BS <- NasdaqDataLink.datatable('SHARADAR/SF1', calendardate = EOquarters[1,1], 
+                                 ticker = symbol, paginate = TRUE)
+  BS <- NasdaqDataLink.datatable('SHARADAR/SF1', 
+                                 ticker = symbol, paginate = TRUE)
+  BS <- BS |> dplyr::filter(dimension == "MRQ") # most recent reported quarter
+  BS <- BS |> dplyr::filter(calendardate == max(calendardate))
+  EOquarters <- EOquarters |> dplyr::filter(date >= BS$reportperiod)
+  # Obtain balance sheet items of Berkshire (source 10Q, 10K)
+  holdings <- NasdaqDataLink.datatable('SHARADAR/SF3', 
+                                       investorname = investor, 
+                                       paginate = TRUE)
+  holdings <- holdings |> dplyr::filter(calendardate %in% EOquarters$date) |>
+    dplyr::arrange(calendardate)
+  holdings <- holdings |> dplyr::filter(calendardate == max(calendardate))
+  holdings <- holdings |> dplyr::select(-investorname)  
+  holdings <- holdings |> dplyr::arrange(ticker)  
   gs4_deauth()
   gs4_auth()
-  # sheet_write(test, ss = paste0("https://docs.google.com/spreadsheets/d/",sheetID), sheet = "Sheet3")
-  googlesheets4::range_clear(ss = sheetURL, range = "A1:C10")
+
   googlesheets4::range_write(ss = sheetURL, 
-                             data = test, 
+                             data = holdings, 
                              range = "A1", 
                              col_names = TRUE,
-                             sheet = "Sheet3")
-
+                             sheet = "holdings")
+  load(file = "./data/BRKB_income_bu.Rdata")
+  avg_b_share_equiv <- last(data3M$avg_a_equiv_shrs) * 1500
+  cash = last(data3M$cash_equiv)
+  equity_inv <- last(data3M$m2m_equities + data3M$equities_at_cost -
+                     data3M$brka_IncomeTaxesPrincipallyDeferred)
+  output <- data.frame(nr_shares = avg_b_share_equiv,
+                       equity_inv = equity_inv,
+                       cash = cash)
+  
+  googlesheets4::range_write(ss = sheetURL, 
+                             data = output, 
+                             range = "A2", 
+                             col_names = TRUE,
+                             sheet = "PE")
+  
+  # number of outstanding shares
+  # equity investments
+  # long term deferred tax liabilities
+  # cash and cash equivalence holdings
+  # eps estimate
+  # error eps estimate insurance business
   
 }
   

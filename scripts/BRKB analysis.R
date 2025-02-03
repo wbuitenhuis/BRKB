@@ -65,5 +65,3 @@ load(file = "./data/BRKB_income_bu.Rdata")
 source("./scripts/functions/brkb_analysis_functions.R")
 add_portfolio_valuation(data3M)
 
-source("./scripts/functions/brkb_analysis_functions.R")
-push_latest_portfolio_to_googlesheets()
